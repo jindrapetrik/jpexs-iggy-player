@@ -132,6 +132,7 @@ namespace IggyViewer {
                 native.Close();Check(native.Mp3.Active==0&&native.Mp3.Opened==native.Mp3.Closed&&native.TrackedSoundChannels==0,"No decoder or sound references remain");
             }
             Check(Hash(File.ReadAllBytes(fixture))==hash,"Audio fixture unchanged on disk");
+            foreach(string message in log.Messages)Check(message.IndexOf("DLL 408:",StringComparison.Ordinal)<0,"No native audio reference errors");
             log.Write("PASS: timeline and AS3 PCM8/PCM16/ADPCM/mono/stereo MP3, VBR/seek prefixes, Flash loop counts, SOUND_COMPLETE targets/flags, chained listeners, one-time coercion, stop/stopAll without completion, reused slots, pause/resume, mute, GC and reopen.");
         }
     }

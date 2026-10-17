@@ -16,6 +16,7 @@ namespace IggyViewer {
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate uint CallMethod(IntPtr player,IntPtr result,IntPtr receiver,IntPtr name,int count,IntPtr args);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr GlobalReference(IntPtr player,IntPtr name);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr LookupGlobal(IntPtr vm,IntPtr name);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr ReleaseInternalReference(IntPtr vm,IntPtr value);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate void ReferencePath(IntPtr output,IntPtr player,IntPtr reference);
         sealed class Channel {internal IntPtr Reference;internal int Slot;internal float Duration;internal MovieActivity.Scope Owner;}
         readonly List<Channel> channels=new List<Channel>();
@@ -30,6 +31,7 @@ namespace IggyViewer {
         readonly CallMethod call;
         readonly GlobalReference global;
         readonly LookupGlobal legacyGlobal;
+        readonly ReleaseInternalReference releaseInternal;
         readonly IntPtr completionClassName;
         readonly ReferencePath path;
         IntPtr completionClass;
@@ -46,6 +48,7 @@ namespace IggyViewer {
             number=Function<Number>(module,modern?0x449a0:0x46be0);
             error=Function<Error>(module,modern?0x79930:0x7c7a0);
             reference=native.Bind<Reference>("IggyValueRefFromTempRef");free=native.Bind<Native.VoidPP>("IggyValueRefFree");
+            releaseInternal=Function<ReleaseInternalReference>(module,modern?0x65980:0x681f0);
             call=native.Bind<CallMethod>("IggyPlayerCallMethodRS");path=native.Bind<ReferencePath>("IggyValuePathFromRef");
             if(modern)global=native.Bind<GlobalReference>("IggyValueRefGetGlobal");
             else legacyGlobal=Function<LookupGlobal>(module,0x80010);
@@ -140,7 +143,9 @@ namespace IggyViewer {
                     if(Marshal.ReadInt16(slot,36)>=0)continue;
                     // A timeline stop command cancels a voice without clearing
                     // its native reference. It must not report completion.
-                    Marshal.WriteIntPtr(slot,IntPtr.Zero);free(player,nativeReference);
+                    // Voice slots own internal VM roots, which were never
+                    // counted as public ValueRefs. Match the DLL's stop path.
+                    Marshal.WriteIntPtr(slot,IntPtr.Zero);releaseInternal(vm,nativeReference);
                     Marshal.WriteInt32(value,55,-1);Release(channel);continue;
                 }
                 Marshal.WriteInt32(value,55,-1);*((float*)((byte*)value+59))=channel.Duration;
