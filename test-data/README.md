@@ -30,7 +30,9 @@ java -jar PATH_TO_FFDEC_CLI_JAR -importScript test-data/as3.swf test-data/cursor
 java -jar PATH_TO_FFDEC_CLI_JAR -swf2iggy test-data/cursor.swf test-data/cursor.iggy 64
 ~~~
 
-Replace cursor with another fixture name as needed. Tests cover hand cursors
+Replace cursor with another fixture name as needed, except runtime, whose
+additional subclass requires the generator in its runtime API notes.
+Tests cover hand cursors
 and Mouse.hide/show, keyboard events, LoaderInfo counters, SharedObject
 persistence, Loader errors and assignments to a zero-length scaleY axis.
 The keyboard fixture also removes a focused subtree and text field, checks

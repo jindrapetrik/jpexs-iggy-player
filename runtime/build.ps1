@@ -13,5 +13,5 @@ $classPath = "$jar;$(Join-Path (Split-Path $jar) 'lib/*')"
 if ($LASTEXITCODE -ne 0) { throw 'Runtime compiler helper failed' }
 & $java -cp "$toolsDirectory;$classPath" CompileRuntimeShim $baseMovie (Join-Path $PSScriptRoot 'sharedobject.abc') (Join-Path $PSScriptRoot 'HostCodec.as') (Join-Path $PSScriptRoot 'SharedObject.as')
 if ($LASTEXITCODE -ne 0) { throw 'SharedObject compilation failed' }
-& $java -cp "$toolsDirectory;$classPath" CompileRuntimeShim $baseMovie (Join-Path $PSScriptRoot 'loader.abc') (Join-Path $PSScriptRoot 'HostURLRequest.as') (Join-Path $PSScriptRoot 'HostLoaderInfo.as') (Join-Path $PSScriptRoot 'HostIOErrorEvent.as') (Join-Path $PSScriptRoot 'HostLoader.as')
+& $java -cp "$toolsDirectory;$classPath" CompileRuntimeShim $baseMovie (Join-Path $PSScriptRoot 'loader.abc') (Join-Path $PSScriptRoot 'HostURLRequest.as') (Join-Path $PSScriptRoot 'HostLoaderInfo.as') (Join-Path $PSScriptRoot 'HostIOErrorEvent.as') (Join-Path $PSScriptRoot 'HostLoader.as') (Join-Path $PSScriptRoot 'HostFileReferenceList.as')
 if ($LASTEXITCODE -ne 0) { throw 'Loader compilation failed' }

@@ -182,6 +182,7 @@ IggyPlayer.exe --self-test-keyboard test-data/keyboard.iggy output-directory
 IggyPlayer.exe --self-test-cursor test-data/cursor.iggy output-directory
 IggyPlayer.exe --self-test-loaderinfo test-data/loaderinfo.iggy output-directory
 IggyPlayer.exe --self-test-runtime test-data/runtime.iggy output-directory
+IggyPlayer.exe --self-test-fixup-partitions test-data/graphics.iggy output-directory
 IggyPlayer.exe --self-test-zero-scale test-data/zero-scale.iggy output-directory
 IggyPlayer.exe --self-test-clock test-data/graphics.iggy output-directory
 IggyPlayer.exe --self-test-opengl test-data/graphics.iggy output-directory
@@ -212,12 +213,19 @@ original renderer. Native morph gradient palette caching can also produce
 differences between instances sharing a definition.
 
 Compatibility changes are applied in memory: relocation programs are
-compacted for the DLL's 64 KiB buffer, empty style tables are normalized,
+compacted and split into consecutive entries for the same data block,
+each fitting the DLL's 64 KiB buffer. Template headers, absolute cursor
+positions and operation order are preserved, and the directory is rebuilt.
+Empty style tables are normalized,
 text-only movies receive a minimal AS3 context when needed, and inherited
 placement matrices are prepared for native seeking. VM wrappers handle
 unsupported or incorrect runtime properties. Source movies and DLL files
 are not rewritten. Successful playback does not prove that an unmodified
 DLL host can load the original container without these fixes.
+
+FileReferenceList subclasses can be initialized through a runtime shim.
+The host has no file picker: browse requests asynchronously dispatch CANCEL,
+keep an empty file list, and never report selected files.
 
 Audio output, video and IME are not connected. The older runtime lacks some
 3D APIs. Arbitrary seeking does not reproduce all AS3 side effects of

@@ -43,6 +43,7 @@ namespace IggyViewer {
                 if(args.Length>=3&&args[0]=="--self-test-filters") {SelfTest.RunFilters(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-as3") {SelfTest.RunAs3(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-fixups") {SelfTest.RunFixups(dll,args[1],args[2],log);return 0;}
+                if(args.Length>=3&&args[0]=="--self-test-fixup-partitions") {SelfTest.RunFixupPartitions(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-game-playback") {SelfTest.RunGamePlayback(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-level-exit") {SelfTest.RunLevelExit(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-play-response") {SelfTest.RunPlayResponse(dll,args[1],args[2],log);return 0;}

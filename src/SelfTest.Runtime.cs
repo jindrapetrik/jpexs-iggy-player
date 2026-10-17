@@ -30,6 +30,9 @@ namespace IggyViewer {
                     Check(ReadValue(native,"before")==session*2+cycle,"SharedObject persists across VM reopen and native shutdown");
                     Check(ReadString(native,"literal")=="Loader","QName redirect must preserve string literals");
                     Check(ReadValue(native,"errorsAtReturn")==0,"External loading errors must be asynchronous");
+                    Check(ReadValue(native,"pickerReady","IggyValueGetBooleanRS")==1,"FileReferenceList subclass constructor and empty file list");
+                    Check(ReadValue(native,"pickerReturned","IggyValueGetBooleanRS")==1,"File picker request accepted");
+                    Check(ReadValue(native,"pickerEventsAtReturn")==0,"File picker cancellation must be asynchronous");
                     native.Bind<Native.VoidPI>("IggyPlayerGarbageCollect")(native.Player,100);GC.Collect();GC.WaitForPendingFinalizers();
                     for(int step=0;step<5;step++){Thread.Sleep(40);Check(native.Frame(true),"Runtime fixture timers");}
                     Check(ReadValue(native,"ioErrors")==1,"Replacement load cancels earlier pending request");
@@ -37,6 +40,9 @@ namespace IggyViewer {
                         Check(ReadValue(native,name,"IggyValueGetBooleanRS")==1,"IOErrorEvent metadata: "+name);
                     Check(ReadValue(native,"completes")==0,"No false COMPLETE on unavailable resource");
                     Check(ReadValue(native,"cancelErrors")==0,"Closed Loader must not dispatch an error");
+                    Check(ReadValue(native,"pickerEvents")==2,"FileReferenceList can browse again after cancellation");
+                    Check(ReadValue(native,"pickerSelects")==0,"Unavailable file picker must not report selected files");
+                    Check(ReadValue(native,"pickerEventOk","IggyValueGetBooleanRS")==1,"File picker cancellation target and empty file list");
                     CheckLoaderCounters(native,original.LongLength);native.Close();
                 }
                 string copy=Path.Combine(output,"scope-copy.iggy");File.WriteAllBytes(copy,original);
@@ -60,7 +66,7 @@ namespace IggyViewer {
             }
             Check(File.ReadAllText(blocked)=="preserve","Storage error preserves blocking file");
             Check(Hash(File.ReadAllBytes(movie))==hash,"Runtime fixture unchanged on disk");
-            log.Write("PASS: stopped SoundChannel, persistent SharedObject/clear/Unicode/nested arrays across reopen and shutdown, isolated movies, catchable storage failures, asynchronous Loader IOErrorEvent, cancelled requests, native/.NET GC, untouched literals and original file.");
+            log.Write("PASS: stopped SoundChannel, persistent SharedObject/clear/Unicode/nested arrays across reopen and shutdown, isolated movies, catchable storage failures, asynchronous Loader IOErrorEvent, FileReferenceList inheritance/cancellation/reuse, cancelled requests, native/.NET GC, untouched literals and original file.");
         }
     }
 }

@@ -27,6 +27,13 @@ package {
         public var infoType:Boolean;
         public var storageFailed:Boolean;
         public var literal:String = "Loader";
+        public var picker:FilePicker;
+        public var pickerReady:Boolean;
+        public var pickerReturned:Boolean;
+        public var pickerEvents:uint;
+        public var pickerSelects:uint;
+        public var pickerEventOk:Boolean;
+        public var pickerEventsAtReturn:uint;
         public var loader:Loader;
         private var cancelled:Loader;
         public function Main() {
@@ -60,6 +67,12 @@ package {
             cancelled.contentLoaderInfo.addEventListener(IOErrorEvent.IO_ERROR, cancelFailed);
             cancelled.load(new URLRequest("https://example.invalid/cancelled.swf"));
             cancelled.close();
+            picker = new FilePicker();
+            pickerReady = picker.inherited && picker.fileList.length == 0;
+            picker.addEventListener(Event.CANCEL, pickerCancelled);
+            picker.addEventListener(Event.SELECT, pickerSelected);
+            pickerReturned = picker.browse();
+            pickerEventsAtReturn = pickerEvents;
         }
         private function failed(event:IOErrorEvent):void {
             ioErrors++;
@@ -72,5 +85,11 @@ package {
         }
         private function completed(event:Event):void { completes++; }
         private function cancelFailed(event:IOErrorEvent):void { cancelErrors++; }
+        private function pickerCancelled(event:Event):void {
+            pickerEvents++;
+            pickerEventOk = pickerReturned && event.type == Event.CANCEL && event.target === picker && picker.fileList.length == 0;
+            if (pickerEvents == 1) pickerReturned = picker.browse();
+        }
+        private function pickerSelected(event:Event):void { pickerSelects++; }
     }
 }

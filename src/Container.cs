@@ -148,6 +148,86 @@ namespace IggyViewer {
                 return compact;
             }
         }
+        static void SkipFixup(BinaryWriter writer,long gap) {
+            if(gap==0)return;
+            if(gap<0||gap>uint.MaxValue)throw new InvalidDataException("Invalid Iggy fixup skip.");
+            if(gap<=32&&gap%2==0)writer.Write((byte)(191+gap/2));
+            else if(gap<=256){writer.Write((byte)0xfe);writer.Write((byte)(gap-1));}
+            else {writer.Write((byte)0xff);writer.Write((uint)gap);}
+        }
+        static List<byte[]> SplitFixups(byte[] program,int size,int limit=65536) {
+            if(program.Length<=limit)return new List<byte[]>{program};
+            List<byte[]> chunks=new List<byte[]>();
+            using(BinaryReader reader=new BinaryReader(new MemoryStream(program,false))) {
+                Template[] templates=new Template[reader.ReadByte()];
+                for(int i=0;i<templates.Length;i++)templates[i]=ReadTemplate(reader);
+                int header=checked((int)reader.BaseStream.Position);long cursor=0;
+                using(MemoryStream chunk=new MemoryStream())using(BinaryWriter writer=new BinaryWriter(chunk)) {
+                    writer.Write(program,0,header);
+                    while(reader.BaseStream.Position<reader.BaseStream.Length) {
+                        int start=checked((int)reader.BaseStream.Position),code=reader.ReadByte();long before=cursor;
+                        if(code<0xc0) {
+                            int repeat=code<128?1:code-127,index=code<128?code:reader.ReadByte();
+                            if(index>=templates.Length)throw new InvalidDataException("Invalid Iggy fixup template.");
+                            cursor+=(long)repeat*templates[index].Advance;
+                        } else if(code<0xd0)cursor+=code*2-382;
+                        else if(code==0xd2||code==0xd4||code==0xd5||code==0xd6)cursor+=(reader.ReadByte()+1)*Width(code&15);
+                        else if(code==0xfc)reader.ReadByte();
+                        else if(code==0xfd)cursor+=ReadTemplate(reader).Advance;
+                        else if(code==0xfe)cursor+=reader.ReadByte()+1;
+                        else if(code==0xff)cursor+=reader.ReadUInt32();
+                        else throw new InvalidDataException("Unsupported Iggy fixup opcode.");
+                        if(cursor<0||cursor>size)throw new InvalidDataException("Invalid Iggy fixup cursor.");
+                        int length=checked((int)reader.BaseStream.Position)-start;
+                        if(chunk.Length+length>limit) {
+                            chunks.Add(chunk.ToArray());chunk.SetLength(0);chunk.Position=0;
+                            writer.Write(program,0,header);
+                            // Every index entry starts at the target block's
+                            // base, regardless of the previous entry's cursor.
+                            SkipFixup(writer,before);
+                        }
+                        if(chunk.Length+length>limit)throw new InvalidDataException("Iggy fixup instruction exceeds the native buffer.");
+                        writer.Write(program,start,length);
+                    }
+                    chunks.Add(chunk.ToArray());
+                }
+            }
+            // Compare exact operation order, including multiple writes at one
+            // offset. Never hand the DLL a lossy or double-relocated partition.
+            List<Field> expected=Decode(program,0,program.Length,size);int next=0;
+            foreach(byte[] chunk in chunks)foreach(Field field in Decode(chunk,0,chunk.Length,size)) {
+                if(next>=expected.Count||field.Offset!=expected[next].Offset||field.Operation!=expected[next].Operation)
+                    throw new InvalidDataException("Partitioned Iggy fixup changed a field.");
+                next++;
+            }
+            if(next!=expected.Count)throw new InvalidDataException("Partitioned Iggy fixup lost fields.");
+            return chunks;
+        }
+        sealed class Block {internal ushort Type,Target;internal int Length,Stored,Position;internal byte[] Program;}
+        static byte[] LimitFixupBlocks(byte[] bytes,List<int> sizes,Log log,int limit=65536) {
+            int count=BitConverter.ToInt32(bytes,28);bool changed=false;List<Block> blocks=new List<Block>();
+            for(int i=0;i<count;i++) {
+                int at=32+16*i;Block block=new Block {Type=BitConverter.ToUInt16(bytes,at),Target=BitConverter.ToUInt16(bytes,at+2),Length=BitConverter.ToInt32(bytes,at+4),Stored=BitConverter.ToInt32(bytes,at+8),Position=BitConverter.ToInt32(bytes,at+12)};
+                if(block.Type!=0||block.Length<=limit){blocks.Add(block);continue;}
+                if(bytes[8]!=1||bytes[10]!=1||block.Target>=sizes.Count)throw new InvalidDataException("Oversized fixup block cannot be normalized for this runtime.");
+                byte[] compact=Compact(bytes,block.Position,block.Length,sizes[block.Target]);
+                List<byte[]> chunks=SplitFixups(compact,sizes[block.Target],limit);
+                foreach(byte[] chunk in chunks)blocks.Add(new Block {Type=0,Target=block.Target,Length=chunk.Length,Stored=chunk.Length,Program=chunk});
+                changed=true;log.Write("Prepared native fixups in memory: "+block.Length+" -> "+compact.Length+" bytes, "+chunks.Count+" block(s), each at most "+limit+" bytes; source unchanged.");
+            }
+            if(!changed)return bytes;
+            if(blocks.Count>256)throw new InvalidDataException("Too many Iggy blocks after partitioning native fixups.");
+            using(MemoryStream output=new MemoryStream())using(BinaryWriter writer=new BinaryWriter(output)) {
+                writer.Write(bytes,0,32);writer.Write(new byte[blocks.Count*16]);
+                for(int i=0;i<blocks.Count;i++) {
+                    Block block=blocks[i];output.Position=output.Length;while(output.Position%8!=0)writer.Write((byte)0);
+                    int position=checked((int)output.Position);
+                    if(block.Program==null)writer.Write(bytes,block.Position,block.Length);else writer.Write(block.Program);
+                    output.Position=32+16*i;writer.Write(block.Type);writer.Write(block.Target);writer.Write(block.Length);writer.Write(block.Stored);writer.Write(position);
+                }
+                output.Position=28;writer.Write(blocks.Count);return output.ToArray();
+            }
+        }
         static byte[] NormalizeEmptyStyles(byte[] bytes,Log log) {
             if(bytes[8]!=1||bytes[10]!=1)return bytes;
             int blocks=BitConverter.ToInt32(bytes,28),dataIndex=0;
@@ -231,20 +311,7 @@ namespace IggyViewer {
                     }
                 }
             }
-            MemoryStream result=new MemoryStream();result.Write(bytes,0,bytes.Length);
-            for(int i=0;i<count;i++) {
-                int at=32+16*i,len=BitConverter.ToInt32(bytes,at+4),pos=BitConverter.ToInt32(bytes,at+12);
-                if(bytes[at]!=0||len<=65536)continue;
-                if(bytes[8]!=1||bytes[10]!=1||bytes[at+2]>=sizes.Count)throw new InvalidDataException("Oversized fixup block cannot be normalized for this runtime.");
-                byte[] compact=Compact(bytes,pos,len,sizes[bytes[at+2]]);
-                if(compact.Length>65536)throw new InvalidDataException("Fixup program exceeds the native DLL's 64 KiB temporary buffer even after compaction.");
-                int output=checked((int)result.Length);result.Position=result.Length;result.Write(compact,0,compact.Length);
-                using(BinaryWriter w=new BinaryWriter(result,System.Text.Encoding.UTF8,true)) {
-                    result.Position=at+4;w.Write(compact.Length);w.Write(compact.Length);w.Write(output);
-                }
-                log.Write("Compacted native no-op fixups and repeated strides in memory: "+len+" -> "+compact.Length+" bytes; source file unchanged.");
-            }
-            return result.ToArray();
+            return LimitFixupBlocks(bytes,sizes,log);
         }
         static void NormalizeClassNames(byte[] bytes,Log log) {
             // The native initializer runs during CreateFromMemory. For resource

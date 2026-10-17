@@ -30,6 +30,7 @@ Invoke-PlayerTest @('--self-test-clock', $movie, (Join-Path $output 'clock')) 'c
 Invoke-PlayerTest @('--self-test-zero-scale', (Join-Path $PSScriptRoot 'test-data/zero-scale.iggy'), (Join-Path $output 'zero-scale')) 'zero-scale.log'
 Invoke-PlayerTest @('--self-test-loaderinfo', (Join-Path $PSScriptRoot 'test-data/loaderinfo.iggy'), (Join-Path $output 'loaderinfo')) 'loaderinfo.log'
 Invoke-PlayerTest @('--self-test-runtime', (Join-Path $PSScriptRoot 'test-data/runtime.iggy'), (Join-Path $output 'runtime')) 'runtime.log'
+Invoke-PlayerTest @('--self-test-fixup-partitions', $movie, (Join-Path $output 'fixup-partitions')) 'fixup-partitions.log'
 if ($TestOpenGl) { Invoke-PlayerTest @('--self-test-opengl', $movie, (Join-Path $output 'opengl')) 'opengl.log' }
 if ($GameMovie) {
     Invoke-PlayerTest @('--self-test-fixups', $GameMovie, (Join-Path $output 'game')) 'game.log'

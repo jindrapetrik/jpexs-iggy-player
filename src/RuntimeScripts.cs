@@ -73,14 +73,15 @@ namespace IggyViewer {
             }
         }
         static void WriteVar(BinaryWriter w,int n){uint value=(uint)n;while(value>=128){w.Write((byte)(value|128));value>>=7;}w.Write((byte)value);}
-        public byte[] Redirect(bool loader) {
-            if(!loader)return bytes;
+        public byte[] Redirect(bool loader,bool fileList) {
+            if(!loader&&!fileList)return bytes;
             Dictionary<int,string> changes=new Dictionary<int,string>();
             for(int i=1;i<names.Count;i++) {
                 string q=Qualified(i);
-                if(q=="flash.display::Loader")changes.Add(i,"HostLoader");
-                if(q=="flash.net::URLRequest")changes.Add(i,"HostURLRequest");
-                if(q=="flash.events::IOErrorEvent")changes.Add(i,"HostIOErrorEvent");
+                if(loader&&q=="flash.display::Loader")changes.Add(i,"HostLoader");
+                if(loader&&q=="flash.net::URLRequest")changes.Add(i,"HostURLRequest");
+                if(loader&&q=="flash.events::IOErrorEvent")changes.Add(i,"HostIOErrorEvent");
+                if(fileList&&q=="flash.net::FileReferenceList")changes.Add(i,"HostFileReferenceList");
             }
             if(changes.Count==0)return bytes;
             List<string> texts=new List<string>(strings);
@@ -104,7 +105,7 @@ namespace IggyViewer {
     }
 
     internal sealed class RuntimeScriptPlan {
-        readonly bool shared,loader;
+        readonly bool shared,loader,fileList;
         internal bool NeedsSharedObject {get{return shared;}}
         public RuntimeScriptPlan(IEnumerable<byte[]> sources) {
             HashSet<string> references=new HashSet<string>(StringComparer.Ordinal),definitions=new HashSet<string>(StringComparer.Ordinal);
@@ -113,7 +114,8 @@ namespace IggyViewer {
             }
             shared=references.Contains("flash.net::SharedObject")&&!definitions.Contains("flash.net::SharedObject");
             loader=references.Contains("flash.display::Loader")&&!definitions.Contains("flash.display::Loader")&&!definitions.Contains("flash.net::URLRequest")&&!definitions.Contains("flash.events::IOErrorEvent");
-            if(loader&&(definitions.Contains("com.jpexs.iggy.runtime::HostLoader")||definitions.Contains("com.jpexs.iggy.runtime::HostURLRequest")||definitions.Contains("com.jpexs.iggy.runtime::HostLoaderInfo")||definitions.Contains("com.jpexs.iggy.runtime::HostIOErrorEvent")))
+            fileList=references.Contains("flash.net::FileReferenceList")&&!definitions.Contains("flash.net::FileReferenceList");
+            if((loader||fileList)&&(definitions.Contains("com.jpexs.iggy.runtime::HostLoader")||definitions.Contains("com.jpexs.iggy.runtime::HostURLRequest")||definitions.Contains("com.jpexs.iggy.runtime::HostLoaderInfo")||definitions.Contains("com.jpexs.iggy.runtime::HostIOErrorEvent")||definitions.Contains("com.jpexs.iggy.runtime::HostFileReferenceList")))
                 throw new InvalidDataException("Movie conflicts with the Iggy runtime compatibility namespace.");
             if(shared&&definitions.Contains("com.jpexs.iggy.runtime::HostCodec"))throw new InvalidDataException("Movie conflicts with the SharedObject codec namespace.");
         }
@@ -124,15 +126,15 @@ namespace IggyViewer {
             }
         }
         public byte[] Apply(byte[] source,bool main,Log log) {
-            if(!shared&&!loader)return source;
+            if(!shared&&!loader&&!fileList)return source;
             List<byte[]> abcs=new List<byte[]>();
             if(main) {
                 if(shared)abcs.Add(Resource("IggyViewer.SharedObject.abc"));
-                if(loader)abcs.Add(Resource("IggyViewer.Loader.abc"));
+                if(loader||fileList)abcs.Add(Resource("IggyViewer.Loader.abc"));
             }
             bool changed=abcs.Count!=0;
             foreach(byte[] abc in Container.ReadAbcs(source)) {
-                byte[] rewritten=new RuntimeAbc(abc).Redirect(loader);abcs.Add(rewritten);changed|=!Object.ReferenceEquals(abc,rewritten);
+                byte[] rewritten=new RuntimeAbc(abc).Redirect(loader,fileList);abcs.Add(rewritten);changed|=!Object.ReferenceEquals(abc,rewritten);
             }
             return changed?Container.ReplaceAbcs(source,abcs,log):source;
         }
@@ -182,14 +184,15 @@ namespace IggyViewer {
                     bool head=Decode(bytes,start,length,size).Exists(f=>f.Offset==152&&f.Operation==2);
                     if(!head)continue;if(fixedHead)throw new InvalidDataException("Duplicate ABC head relocation.");fixedHead=true;
                     byte[] program=Compact(bytes,start,length,data.Length,pointers);
-                    if(program.Length>65536)throw new InvalidDataException("Runtime compatibility exceeds native fixup buffer.");
+                    // Prepare partitions large programs into consecutive fixup
+                    // entries for the same target before calling the DLL.
                     output.Position=output.Length;int position=checked((int)output.Position);w.Write(program);
                     output.Position=at+4;w.Write(program.Length);w.Write(program.Length);w.Write(position);
                 }
                 if(!fixedHead)throw new InvalidDataException("Missing Iggy ABC head relocation.");
                 output.Position=output.Length;while(output.Position%8!=0)w.Write((byte)0);
                 int location=checked((int)output.Position);w.Write(data);output.Position=entry+4;w.Write(data.Length);w.Write(data.Length);w.Write(location);
-                log.Write("Installed runtime AS3 compatibility in memory; redirected unsupported Loader/URLRequest/IOErrorEvent QNames.");
+                log.Write("Installed runtime AS3 compatibility in memory; redirected unsupported runtime QNames.");
                 return output.ToArray();
             }
         }
