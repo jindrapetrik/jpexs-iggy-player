@@ -42,6 +42,13 @@ Non-ASCII strings are intentional Unicode persistence test data. See the
 [LoaderInfo notes](loaderinfo/README.md) and
 [runtime API notes](runtime/README.md).
 
+## Audio
+
+The audio.swf and audio.iggy fixtures contain generated sine tones in PCM8,
+PCM16, SWF ADPCM and mono/stereo MP3. They exercise native timeline sounds,
+AS3 Sound.play(), loops, concurrent channels, pause, mute, stop and resource
+lifetime. See [audio/README.md](audio/README.md) for regeneration and controls.
+
 ## Filters
 
 The filters.swf and filters.iggy fixtures exercise translucent color

@@ -51,6 +51,7 @@ namespace IggyViewer {
                 if(args.Length>=3&&args[0]=="--self-test-zero-scale") {SelfTest.RunZeroScale(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-loaderinfo") {SelfTest.RunLoaderInfo(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-runtime") {SelfTest.RunRuntime(dll,args[1],args[2],log);return 0;}
+                if(args.Length>=3&&args[0]=="--self-test-audio") {SelfTest.RunAudio(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-focal-instances") {SelfTest.RunFocalInstances(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-opengl") {SelfTest.RunOpenGl(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--render-all") {
@@ -87,7 +88,7 @@ namespace IggyViewer {
                 if(args.Length>=3&&args[0]=="--self-test-game-keyboard") {SelfTest.RunGameKeyboard(dll,args[1],args[2],log,renderer);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-keyboard") {SelfTest.RunKeyboard(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-cursor") {SelfTest.RunCursor(dll,args[1],args[2],log);return 0;}
-                using(Native native=new Native(dll,log,correctFocal,renderer:renderer))using(PlayerForm form=new PlayerForm(native,logPath,log)) {
+                using(Native native=new Native(dll,log,correctFocal,renderer:renderer,audio:args.Length==0||!args[0].StartsWith("--")))using(PlayerForm form=new PlayerForm(native,logPath,log)) {
                     if(args.Length>=3&&args[0]=="--ui-test") {
                         form.ShowInTaskbar=false;form.Opacity=0;form.Show();Application.DoEvents();
                         form.OpenFile(args[1],false);
@@ -209,6 +210,8 @@ namespace IggyViewer {
             ToolStripMenuItem playback=new ToolStripMenuItem("Playback");
             pause.CheckedChanged+=delegate {paused=pause.Checked;native.SetPaused(paused);};playback.DropDownItems.Add(pause);
             playback.DropDownItems.Add("Reload",null,delegate {if(native.FileName!=null)OpenFile(native.FileName);});
+            ToolStripMenuItem mute=new ToolStripMenuItem("Mute sound") {CheckOnClick=true,Checked=native.Muted};
+            mute.CheckedChanged+=delegate {native.SetMuted(mute.Checked);};playback.DropDownItems.Add(mute);
             ToolStripMenuItem focal=new ToolStripMenuItem("Correct focal morphs") {CheckOnClick=true,Checked=native.Renderer.CorrectFocalMorphs};
             focal.CheckedChanged+=delegate {
                 int current=native.CurrentFrame;bool wasPaused=paused;

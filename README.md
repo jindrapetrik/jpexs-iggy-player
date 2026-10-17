@@ -47,6 +47,7 @@ Controls:
 - **Play / Pause** starts or pauses playback.
 - The previous/next buttons and frame field seek to a frame, numbered from 1.
 - **Playback > Reload** reopens the current file.
+- **Playback > Mute sound** silences or restores audio.
 - **Playback > Renderer** switches between OpenGL and software rendering.
 - **Playback > Correct focal morphs** toggles compensation for the DLL's
   focal morph matrix and focus interpolation.
@@ -60,7 +61,7 @@ Before dispatching keys or text, the host clears native focus retained by
 a removed display object so events reach Stage after scene transitions.
 Attached text fields and reattached subtrees retain their focus.
 
-Pausing stops timelines while retaining mouse interaction and text editing.
+Pausing stops timelines and active audio channels while retaining mouse interaction and text editing.
 Input is dispatched directly without advancing a simulation frame. Playback
 uses a monotonic clock and catches up due frames after slow rendering.
 
@@ -69,6 +70,27 @@ when the pointer is stationary. Disabled buttons and useHandCursor=false
 are respected. Mouse.hide() and Mouse.show() control the system cursor over
 the canvas so movies can draw their own cursor. Toolbars, menus and other
 windows retain a visible cursor.
+
+## Audio
+
+Normal playback enables the DLL's mixer through Windows WaveOut. Embedded
+DefineSound assets support PCM (8/16 bit), SWF ADPCM and MP3, triggered by
+timeline StartSound/StartSound2 commands or AS3 Sound.play(). The native
+mixer handles concurrent channels, volume/panning, looping and stopping.
+MP3 uses a host bridge to the Windows ACM decoder; a separate Iggy MP3 DLL
+is not required. A missing ACM codec or invalid MP3 is reported in the log
+without aborting the movie. MP3 is decoded to PCM when a channel opens,
+with limits of 32 MiB encoded and 256 MiB decoded data per channel.
+
+Playback pause/resume and the Mute sound menu also apply to audio. Closing
+or reloading a movie releases its channels. PNG export and noninteractive
+render modes remain silent. SoundStreamHead/Head2/Block, external sound
+loading, Nellymoser and Speex are not implemented.
+
+AS3 sound behavior otherwise follows the supplied DLL: Sound.play's loop
+argument counts total iterations (0 and 1 both play once), and natural
+completion does not dispatch SOUND_COMPLETE. These runtime differences
+from Flash Player are not emulated by the audio output bridge.
 
 ## Hardware acceleration
 
@@ -143,6 +165,7 @@ and a JDK. The checked-in ABC resources are sufficient for a normal build.
 .\test.ps1
 .\test.ps1 -PlayerPath "$PWD\IggyPlayer.updated.exe"
 .\test.ps1 -TestOpenGl
+.\test.ps1 -TestAudio
 .\test.ps1 -DllPath "$PWD\lib\iggy_w64.dll" -OutputDirectory "$PWD\test-output\legacy"
 ~~~
 
@@ -157,6 +180,11 @@ The optional -TestOpenGl suite requires hardware OpenGL. It compares all
 67 graphics frames against the software renderer, checks alpha filters,
 direct presentation, backend switching, resizing and resource lifetime,
 and measures both backends at 1600 x 1000.
+
+The optional -TestAudio suite produces short audible tones and requires a
+working Windows audio device and MP3 ACM codec. It verifies actual mixed
+PCM output and pitch for PCM8/PCM16/ADPCM and mono/stereo MP3, timeline/AS3
+triggers, looping, pause/resume, stop/stopAll, mute, GC and close/reopen.
 
 Additional game-specific regression modes are available for a compatible
 external fixture. They depend on its timeline and AS3 object layout and
@@ -182,6 +210,7 @@ IggyPlayer.exe --self-test-keyboard test-data/keyboard.iggy output-directory
 IggyPlayer.exe --self-test-cursor test-data/cursor.iggy output-directory
 IggyPlayer.exe --self-test-loaderinfo test-data/loaderinfo.iggy output-directory
 IggyPlayer.exe --self-test-runtime test-data/runtime.iggy output-directory
+IggyPlayer.exe --self-test-audio test-data/audio.iggy output-directory
 IggyPlayer.exe --self-test-fixup-partitions test-data/graphics.iggy output-directory
 IggyPlayer.exe --self-test-zero-scale test-data/zero-scale.iggy output-directory
 IggyPlayer.exe --self-test-clock test-data/graphics.iggy output-directory
@@ -227,7 +256,7 @@ FileReferenceList subclasses can be initialized through a runtime shim.
 The host has no file picker: browse requests asynchronously dispatch CANCEL,
 keep an empty file list, and never report selected files.
 
-Audio output, video and IME are not connected. The older runtime lacks some
+Video and IME are not connected. The older runtime lacks some
 3D APIs. Arbitrary seeking does not reproduce all AS3 side effects of
 sequential playback. Movies can require host services and resources beyond
 the implemented compatibility layer. The BC7 decoder retains its original

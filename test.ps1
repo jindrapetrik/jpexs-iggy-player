@@ -3,7 +3,8 @@ param(
     [string] $DllPath,
     [string] $OutputDirectory = (Join-Path $PSScriptRoot 'test-output'),
     [string] $GameMovie,
-    [switch] $TestOpenGl
+    [switch] $TestOpenGl,
+    [switch] $TestAudio
 )
 $ErrorActionPreference = 'Stop'
 $movie = Join-Path $PSScriptRoot 'test-data/graphics.iggy'
@@ -32,6 +33,7 @@ Invoke-PlayerTest @('--self-test-loaderinfo', (Join-Path $PSScriptRoot 'test-dat
 Invoke-PlayerTest @('--self-test-runtime', (Join-Path $PSScriptRoot 'test-data/runtime.iggy'), (Join-Path $output 'runtime')) 'runtime.log'
 Invoke-PlayerTest @('--self-test-fixup-partitions', $movie, (Join-Path $output 'fixup-partitions')) 'fixup-partitions.log'
 if ($TestOpenGl) { Invoke-PlayerTest @('--self-test-opengl', $movie, (Join-Path $output 'opengl')) 'opengl.log' }
+if ($TestAudio) { Invoke-PlayerTest @('--self-test-audio', (Join-Path $PSScriptRoot 'test-data/audio.iggy'), (Join-Path $output 'audio')) 'audio.log' }
 if ($GameMovie) {
     Invoke-PlayerTest @('--self-test-fixups', $GameMovie, (Join-Path $output 'game')) 'game.log'
     Invoke-PlayerTest @('--self-test-game-playback', $GameMovie, (Join-Path $output 'game-playback')) 'game-playback.log'

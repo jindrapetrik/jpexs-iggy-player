@@ -11,12 +11,11 @@ namespace IggyViewer {
         public readonly List<string> Messages = new List<string>();
         public Log(string path) { this.path = path; File.WriteAllText(path, "Iggy native player\r\n"); }
         public void Write(string text) {
-            Messages.Add(text);
-            File.AppendAllText(path, DateTime.Now.ToString("HH:mm:ss.fff ") + text + "\r\n");
+            lock(Messages){Messages.Add(text);File.AppendAllText(path, DateTime.Now.ToString("HH:mm:ss.fff ") + text + "\r\n");}
         }
     }
 
-    internal unsafe sealed class Native : IDisposable {
+    internal unsafe sealed partial class Native : IDisposable {
         [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)] static extern IntPtr LoadLibraryEx(string name, IntPtr file, uint flags);
         [DllImport("kernel32", SetLastError = true)] static extern IntPtr GetProcAddress(IntPtr module, string name);
         [DllImport("kernel32")] static extern bool FreeLibrary(IntPtr module);
@@ -63,6 +62,11 @@ namespace IggyViewer {
         readonly Log log;
         readonly Warning warning;
         readonly Trace trace;
+        internal readonly Mp3Decoder Mp3;
+        internal readonly bool AudioEnabled;
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate void AudioVolume(IntPtr player,float volume);
+        readonly AudioVolume audioVolume;
+        internal bool Muted {get;private set;}
         readonly Void0 shutdown;
         readonly Void0 flushInstalledFonts;
         readonly FontNameStyle removeFont;
@@ -146,7 +150,7 @@ namespace IggyViewer {
             byte[] bytes = new byte[n]; Marshal.Copy(ptr, bytes, 0, n);
             return Encoding.UTF8.GetString(bytes);
         }
-        public Native(string dll, Log log,bool correctFocalMorphs=true,bool correctLoaderInfo=true,string renderer="software") {
+        public Native(string dll, Log log,bool correctFocalMorphs=true,bool correctLoaderInfo=true,string renderer="software",bool audio=false) {
             this.log = log;
             this.correctLoaderInfo=correctLoaderInfo;
             if (!Environment.Is64BitProcess) throw new InvalidOperationException("A 64-bit process is required.");
@@ -222,6 +226,13 @@ namespace IggyViewer {
             Bind<VoidII>("IggyConfigureBool")(2,1);
             Bind<VoidPP>("IggySetWarningCallback")(Marshal.GetFunctionPointerForDelegate(warning), IntPtr.Zero);
             Bind<VoidPP>("IggySetTraceCallbackUTF8")(Marshal.GetFunctionPointerForDelegate(trace), IntPtr.Zero);
+            audioVolume=Bind<AudioVolume>("IggyPlayerSetAudioVolume");
+            AudioEnabled=audio;
+            if(audio) {
+                Bind<Void0>("IggyAudioUseWaveOut")();
+                Mp3=new Mp3Decoder(this,log);
+                log.Write("Audio: native WaveOut output enabled (PCM, ADPCM and MP3).");
+            }
             Renderer = new SoftwareRenderer(log);
             Renderer.CorrectFocalMorphs=correctFocalMorphs;
             Renderer.SetBackend(renderer);
@@ -230,6 +241,7 @@ namespace IggyViewer {
             } catch {
                 if(Renderer!=null)Renderer.Dispose();
                 if(initialized)shutdown();
+                if(Mp3!=null)Mp3.Dispose();
                 ReleaseDeviceFonts();
                 if(emptyStyles!=IntPtr.Zero){Marshal.FreeHGlobal(emptyStyles);emptyStyles=IntPtr.Zero;}
                 FreeLibrary(module);throw;
@@ -300,6 +312,7 @@ namespace IggyViewer {
             if (Player == IntPtr.Zero) throw new InvalidDataException("The Iggy DLL rejected this file. See the log for details.");
             NormalizeTimelineMatrices(Player);
             NormalizeEmptyStyleTables(Player);
+            NormalizeAudio(Player);
             InstallTextures(Player,FileName);
             IntPtr prop = properties(Player);
             StageWidth = Math.Max(1, Marshal.ReadInt32(prop, 0));
@@ -308,6 +321,7 @@ namespace IggyViewer {
             antiAlias(Player, 0);
             fontCache(Player,0,0,0,0);
             Resize(width, height);
+            if(Muted)audioVolume(Player,0);
             if(correctLoaderInfo)loaderInfo=new LoaderInfoCompatibility(module,modernDll,Player,original.LongLength,log);
             if(correctLoaderInfo)runtimeCompatibility=new RuntimeCompatibility(module,modernDll,Player,log,CorrectZeroScale);
             if(correctLoaderInfo)cursorCompatibility=new CursorCompatibility(this,module,modernDll,log);
@@ -345,7 +359,7 @@ namespace IggyViewer {
                 fixed(byte* p=data)fixed(byte* n=name)id=createLibrary((IntPtr)n,(IntPtr)p,(uint)data.Length,(IntPtr)options);
                 if(id<0||id>31)throw new InvalidDataException("DLL rejected imported library: "+url);
                 libraries.Add(id);loadedUrls.Add(url);
-                NormalizeTimelineMatrices(libraryGeneric(id));NormalizeEmptyStyleTables(libraryGeneric(id));InstallTextures(libraryGeneric(id),file);
+                NormalizeTimelineMatrices(libraryGeneric(id));NormalizeEmptyStyleTables(libraryGeneric(id));NormalizeAudio(libraryGeneric(id));InstallTextures(libraryGeneric(id),file);
                 log.Write("Registered import "+url+" from "+file);
             }
             visiting.Remove(from);
@@ -380,6 +394,7 @@ namespace IggyViewer {
                 play(Player);
             }
         }
+        internal void SetMuted(bool value) {Muted=value;if(Player!=IntPtr.Zero)audioVolume(Player,value?0:1);}
         public void Resize(int width, int height) {
             width=Math.Max(1,Math.Min(4096,width));height=Math.Max(1,Math.Min(4096,height));
             Renderer.Resize(width,height);
@@ -584,6 +599,7 @@ namespace IggyViewer {
             if(disposed)return;disposed=true;
             Close();
             if (initialized) { shutdown(); initialized = false; }
+            if(Mp3!=null)Mp3.Dispose();
             ReleaseDeviceFonts();
             if (Renderer != null) Renderer.Dispose();
             if(emptyStyles!=IntPtr.Zero){Marshal.FreeHGlobal(emptyStyles);emptyStyles=IntPtr.Zero;}
