@@ -144,7 +144,7 @@ namespace IggyViewer {
             byte[] bytes = new byte[n]; Marshal.Copy(ptr, bytes, 0, n);
             return Encoding.UTF8.GetString(bytes);
         }
-        public Native(string dll, Log log,bool correctFocalMorphs=true,bool correctLoaderInfo=true) {
+        public Native(string dll, Log log,bool correctFocalMorphs=true,bool correctLoaderInfo=true,string renderer="software") {
             this.log = log;
             this.correctLoaderInfo=correctLoaderInfo;
             if (!Environment.Is64BitProcess) throw new InvalidOperationException("A 64-bit process is required.");
@@ -221,6 +221,7 @@ namespace IggyViewer {
             Bind<VoidPP>("IggySetTraceCallbackUTF8")(Marshal.GetFunctionPointerForDelegate(trace), IntPtr.Zero);
             Renderer = new SoftwareRenderer(log);
             Renderer.CorrectFocalMorphs=correctFocalMorphs;
+            Renderer.SetBackend(renderer);
             Bind<VoidP>("IggySetGDraw")(Renderer.Interface);
             emptyStyles=Marshal.AllocHGlobal(8);Marshal.WriteInt64(emptyStyles,0);
             } catch {

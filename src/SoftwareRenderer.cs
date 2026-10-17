@@ -33,14 +33,18 @@ namespace IggyViewer {
             public bool Gradient;
             public bool Drawn;
             public bool Clipped;
+            public uint Texture;
+            public OpenGlDevice.Target Surface;
         }
         sealed class Surface {
             public int Width, Height, OriginX, OriginY;
             public uint[] Pixels;
             public byte[] Stencil;
+            public OpenGlDevice.Target Gpu;
+            public bool GpuNewer,CpuNewer;
             public Surface(int w, int h) { Width=w; Height=h; Pixels=new uint[w*h]; Stencil=new byte[w*h]; }
         }
-        struct Vertex { public float X, Y, U, V, Coverage; }
+        internal struct Vertex { public float X, Y, U, V, Coverage; }
         readonly Log log;
         readonly List<Delegate> callbacks = new List<Delegate>();
         readonly Dictionary<IntPtr, Resource> resources = new Dictionary<IntPtr, Resource>();
@@ -52,6 +56,15 @@ namespace IggyViewer {
         readonly Stack<Surface> targets = new Stack<Surface>();
         readonly float[] projection=new float[12];
         bool projected;
+        OpenGlDevice gpu;
+        bool gpuBatch;
+        public bool HardwareAccelerated {get{return gpu!=null;}}
+        public string BackendName {get{return gpu==null?"Software renderer":"OpenGL renderer";}}
+        public string HardwareDescription {get{return gpu==null?"Software":gpu.Description;}}
+        public long HardwareBatches {get;private set;}
+        public long SoftwareBatches {get;private set;}
+        public long Readbacks {get{return gpu==null?0:gpu.Readbacks;}}
+        internal int HardwareTargetCount {get{return gpu==null?0:gpu.TargetCount;}}
         Surface screen, target;
         int nextHandle = 4096;
         int clipX, clipY, clipRight, clipBottom;
@@ -79,8 +92,8 @@ namespace IggyViewer {
             Set(2,new Tile(StartTile));
             Set(3,new V1(delegate(IntPtr e) { Error(e); }));
             Set(4,new V2(delegate(IntPtr n,IntPtr rgba) { }));
-            Set(5,new V1(delegate(IntPtr bits) { byte keep=(byte)~bits.ToInt32();for(int i=0;i<target.Stencil.Length;i++)target.Stencil[i]&=keep; }));
-            Set(6,new Nop(delegate { Array.Clear(target.Stencil,0,target.Stencil.Length); return IntPtr.Zero; }));
+            Set(5,new V1(delegate(IntPtr bits) { ClearStencil(bits.ToInt32()); }));
+            Set(6,new Nop(delegate { ClearStencil(255); return IntPtr.Zero; }));
             Set(7,new Filter(FilterQuad));
             Set(8,new DrawCall(Draw));
             Set(9,new MakeTexture(TextureBegin));
@@ -126,14 +139,62 @@ namespace IggyViewer {
         static IntPtr P(IntPtr p,int at) { return *((IntPtr*)((byte*)p+at)); }
         static float F(IntPtr p,int at) { return *((float*)((byte*)p+at)); }
         IntPtr Add(Resource r) { IntPtr h=new IntPtr(nextHandle++); resources.Add(h,r); return h; }
+        public void SetBackend(string mode) {
+            if(mode!="auto"&&mode!="opengl"&&mode!="software")throw new ArgumentException("Renderer must be auto, opengl or software.");
+            if(mode=="software") {
+                if(gpu==null)return;
+                EnsureCpu(screen);foreach(Resource resource in resources.Values)EnsureResourceCpu(resource);
+                ReleaseSurfaces();gpu.Dispose();gpu=null;
+                foreach(Resource resource in resources.Values){resource.Texture=0;resource.Surface=null;}
+                return;
+            }
+            if(gpu!=null)return;
+            try {
+                gpu=new OpenGlDevice(log);screen.Gpu=gpu.CreateTarget(screen.Width,screen.Height);screen.CpuNewer=true;
+                target=screen;
+            } catch(Exception ex) {
+                if(gpu!=null){gpu.Dispose();gpu=null;}screen.Gpu=null;
+                if(mode=="opengl")throw;
+                log.Write("OpenGL unavailable; using software rendering: "+ex.Message);
+            }
+        }
+        void EnsureGpu(Surface surface) {
+            if(gpu==null)return;
+            if(surface.Gpu==null){surface.Gpu=gpu.CreateTarget(surface.Width,surface.Height);surface.CpuNewer=true;}
+            if(surface.CpuNewer){gpu.Upload(surface.Gpu,surface.Pixels);surface.CpuNewer=false;}
+        }
+        void EnsureCpu(Surface surface) {
+            if(gpu!=null&&surface.GpuNewer){gpu.Read(surface.Gpu,surface.Pixels,null);surface.GpuNewer=false;}
+        }
+        void EnsureResourceCpu(Resource resource) {
+            if(resource!=null&&resource.Pixels==null&&resource.Surface!=null){resource.Pixels=new uint[resource.Width*resource.Height];gpu.Read(resource.Surface,resource.Pixels,null);}
+        }
+        OpenGlDevice.Image GpuImage(Resource resource) {
+            if(resource==null)return new OpenGlDevice.Image();
+            if(resource.Surface==null&&resource.Texture==0)resource.Texture=gpu.CreateTexture(resource.Width,resource.Height,resource.Pixels);
+            return new OpenGlDevice.Image {Texture=resource.Surface!=null?resource.Surface.Color:resource.Texture,Width=resource.Width,Height=resource.Height,X=resource.OriginX,Y=resource.OriginY,Flipped=resource.Surface!=null};
+        }
+        void ReleaseSurfaces() {
+            if(gpu==null)return;
+            HashSet<Surface> seen=new HashSet<Surface>(targets);seen.Add(screen);seen.Add(target);
+            foreach(Surface surface in seen)if(surface!=null){gpu.DeleteTarget(surface.Gpu);surface.Gpu=null;surface.GpuNewer=false;surface.CpuNewer=false;}
+        }
+        public bool Present(IntPtr canvas,int width,int height) {
+            if(gpu==null)return false;
+            EnsureGpu(screen);gpu.Present(screen.Gpu,canvas,width,height);return true;
+        }
+        public void FinishHardware(){if(gpu!=null)gpu.Finish();}
         public void Resize(int width,int height) {
             width=Math.Max(1,Math.Min(4096,width)); height=Math.Max(1,Math.Min(4096,height));
+            ReleaseSurfaces();
             screen=new Surface(width,height); target=screen; targets.Clear(); ResetClip();
         }
         void ResetClip() { clipX=0;clipY=0;clipRight=target.Width;clipBottom=target.Height; }
         void BeginFrame() {
             projected=false;
             target=screen; targets.Clear(); ResetClip(); Triangles=0;CorrectedFocalBatches=0;
+            HardwareBatches=0;SoftwareBatches=0;
+            if(gpu!=null){EnsureGpu(screen);gpu.Clear(screen.Gpu,(uint)Background);screen.GpuNewer=true;screen.CpuNewer=false;return;}
             for(int i=0;i<screen.Pixels.Length;i++) screen.Pixels[i]=(uint)Background;
             Array.Clear(screen.Stencil,0,screen.Stencil.Length);
         }
@@ -147,9 +208,14 @@ namespace IggyViewer {
             int bit=1 << (unchecked((int)slot.ToInt64()) & 7);Error(error);
             int left=Math.Max(0,I(rect,0)-target.OriginX),top=Math.Max(0,I(rect,4)-target.OriginY);
             int right=Math.Min(target.Width,I(rect,8)-target.OriginX),bottom=Math.Min(target.Height,I(rect,12)-target.OriginY);
+            if(gpu!=null){EnsureGpu(target);gpu.ClearStencil(target.Gpu,bit,left,top,right,bottom);target.GpuNewer=true;return;}
             for(int y=top;y<bottom;y++)for(int x=left;x<right;x++) {
                 int at=y*target.Width+x;target.Stencil[at]&=(byte)~bit;
             }
+        }
+        void ClearStencil(int bits) {
+            if(gpu!=null){EnsureGpu(target);gpu.ClearStencil(target.Gpu,bits,0,0,target.Width,target.Height);target.GpuNewer=true;return;}
+            byte keep=(byte)~bits;for(int i=0;i<target.Stencil.Length;i++)target.Stencil[i]&=keep;
         }
         int BufferBegin(IntPtr owner,int type,int vertices,int indices,IntPtr output,IntPtr error) {
             Error(error);
@@ -177,6 +243,7 @@ namespace IggyViewer {
         }
         void Refresh(IntPtr handle) {
             Resource r;if(!resources.TryGetValue(handle,out r)||r.Width<=0)return;
+            if(gpu!=null)gpu.DeleteTexture(r.Texture);r.Texture=0;
             r.Pixels=new uint[r.Width*r.Height];
             for(int i=0;i<r.Pixels.Length;i++) { uint rgba=((uint*)r.Data)[i];r.Pixels[i]=(rgba&0xff00ff00)|((rgba&255)<<16)|((rgba>>16)&255); }
         }
@@ -223,8 +290,10 @@ namespace IggyViewer {
         }
         IntPtr TargetEnd(IntPtr error) {
             Error(error);if(targets.Count==0)return IntPtr.Zero;
-            Surface s=target;target=targets.Pop();ResetClip();
-            return Add(new Resource {Width=s.Width,Height=s.Height,OriginX=s.OriginX,OriginY=s.OriginY,Pixels=s.Pixels});
+            Surface s=target;
+            if(gpu!=null)EnsureGpu(s);
+            target=targets.Pop();ResetClip();
+            return Add(new Resource {Width=s.Width,Height=s.Height,OriginX=s.OriginX,OriginY=s.OriginY,Pixels=gpu==null?s.Pixels:null,Surface=s.Gpu});
         }
         void FilterQuad(IntPtr style,int left,int top,int right,int bottom,IntPtr error) {
             Error(error);
@@ -245,14 +314,16 @@ namespace IggyViewer {
             Vertex b=new Vertex {X=right-target.OriginX,Y=top-target.OriginY,U=1,V=0,Coverage=1};
             Vertex c=new Vertex {X=right-target.OriginX,Y=bottom-target.OriginY,U=1,V=1,Coverage=1};
             Vertex d=new Vertex {X=left-target.OriginX,Y=bottom-target.OriginY,U=0,V=1,Coverage=1};
-            Triangle((IntPtr)copy,a,b,c,2);Triangle((IntPtr)copy,a,c,d,2);
+            BeginBatch((IntPtr)copy,2);
+            try {Triangle((IntPtr)copy,a,b,c,2);Triangle((IntPtr)copy,a,c,d,2);}
+            finally {EndBatch();}
         }
         static uint Pixel(Resource r,int x,int y) {
             x-=r.OriginX;y-=r.OriginY;
             return x<0||y<0||x>=r.Width||y>=r.Height?0:r.Pixels[y*r.Width+x];
         }
         void ApplyFilter(IntPtr style,int left,int top,int right,int bottom) {
-            Resource source;if(!resources.TryGetValue(P(style,32),out source)||source.Pixels==null)return;
+            Resource source;if(!resources.TryGetValue(P(style,32),out source)||source.Pixels==null&&source.Surface==null)return;
             bool clipped=source.Clipped||right-left>4096||bottom-top>4096;
             if(clipped) {
                 left=source.OriginX;top=source.OriginY;right=left+source.Width;bottom=top+source.Height;
@@ -260,6 +331,9 @@ namespace IggyViewer {
             int effect=((byte*)style)[14],w=right-left,h=bottom-top;
             if(w<1||h<1)return;
             if(w>4096||h>4096){Notice("Filter surface exceeds 4096 pixels ("+w+" x "+h+")");return;}
+            if(gpu!=null&&ApplyGpuFilter(style,source,left,top,w,h,effect,clipped))return;
+            EnsureResourceCpu(source);
+            Resource extra;if(resources.TryGetValue(P(style,40),out extra))EnsureResourceCpu(extra);if(resources.TryGetValue(P(style,48),out extra))EnsureResourceCpu(extra);
             Resource output=new Resource {Width=w,Height=h,OriginX=left,OriginY=top,Pixels=new uint[w*h]};
             if(effect==0) {
                 int rx=Math.Max(0,Math.Min(4096,(int)Math.Ceiling((F(style,152)-1)/2)));
@@ -351,6 +425,41 @@ namespace IggyViewer {
             output.Clipped=clipped;
             IntPtr replacement=Add(output);Marshal.WriteIntPtr(style,32,replacement);
         }
+        bool ApplyGpuFilter(IntPtr style,Resource source,int left,int top,int width,int height,int effect,bool clipped) {
+            if(effect<0||effect>3)return false;
+            Resource output=null;
+            if(effect==0) {
+                int rx=Math.Max(0,Math.Min(4096,(int)Math.Ceiling((F(style,152)-1)/2))),ry=Math.Max(0,Math.Min(4096,(int)Math.Ceiling((F(style,156)-1)/2))),passes=I(style,20)&255;
+                if(passes==0||rx==0&&ry==0)return true;
+                // Very large box kernels remain linear-time on the CPU rather
+                // than issue thousands of texture samples per GPU fragment.
+                if(rx>64||ry>64)return false;
+                width+=2*rx*passes;height+=2*ry*passes;left-=rx*passes;top-=ry*passes;
+                if(width>4096||height>4096)return false;
+                OpenGlDevice.Image input=GpuImage(source);OpenGlDevice.Target previous=null;
+                try {
+                    for(int pass=0;pass<passes;pass++) {
+                        OpenGlDevice.Target horizontal=gpu.CreateTarget(width,height+2*ry,false),vertical=null;
+                        try {
+                            gpu.Filter(horizontal,left,top-ry,input,input,new OpenGlDevice.Image(),style,0,rx);
+                            vertical=gpu.CreateTarget(width,height,false);
+                            OpenGlDevice.Image row=new OpenGlDevice.Image {Texture=horizontal.Color,Width=width,Height=height+2*ry,X=left,Y=top-ry,Flipped=true};
+                            gpu.Filter(vertical,left,top,row,row,new OpenGlDevice.Image(),style,0,ry,true);
+                        } catch {gpu.DeleteTarget(vertical);throw;} finally {gpu.DeleteTarget(horizontal);}
+                        gpu.DeleteTarget(previous);previous=vertical;
+                        input=new OpenGlDevice.Image {Texture=vertical.Color,Width=width,Height=height,X=left,Y=top,Flipped=true};
+                    }
+                    output=new Resource {Width=width,Height=height,OriginX=left,OriginY=top,Surface=previous};previous=null;
+                } finally {gpu.DeleteTarget(previous);}
+            } else {
+                Resource original,palette;if(!resources.TryGetValue(P(style,40),out original))original=source;resources.TryGetValue(P(style,48),out palette);
+                OpenGlDevice.Target result=gpu.CreateTarget(width,height,false);
+                try {gpu.Filter(result,left,top,GpuImage(source),GpuImage(original),GpuImage(palette),style,effect);}
+                catch {gpu.DeleteTarget(result);throw;}
+                output=new Resource {Width=width,Height=height,OriginX=left,OriginY=top,Surface=result};
+            }
+            output.Clipped=clipped;Marshal.WriteIntPtr(style,32,Add(output));return true;
+        }
         static uint Pack(int a,int r,int g,int b){return (uint)(a<<24|r<<16|g<<8|b);}
         static float SampleAlpha(Resource source,float x,float y) {
             int ix=(int)Math.Floor(x),iy=(int)Math.Floor(y);float fx=x-ix,fy=y-iy;
@@ -436,6 +545,8 @@ namespace IggyViewer {
             if(vb!=null)vb.Drawn=true;
             if(formats.Add(format))log.Write("Vertex format "+format);
             IntPtr matrix=(I(style,4)&4)!=0?IntPtr.Zero:P(style,64);
+            BeginBatch(style,format);
+            try {
             if(indices>0) {
                 for(int i=0;i+2<indices;i+=3) {
                     int a=((ushort*)indexPtr)[i],b=((ushort*)indexPtr)[i+1],c=((ushort*)indexPtr)[i+2];
@@ -449,12 +560,28 @@ namespace IggyViewer {
                     Triangle(style,a,b,c,format);Triangle(style,a,c,d,format);
                 }
             }
+            } finally {EndBatch();}
         }
+        void BeginBatch(IntPtr style,int format) {
+            if(gpu==null) {
+                SoftwareBatches++;return;
+            }
+            EnsureGpu(target);
+            int left=clipX,top=clipY,right=clipRight,bottom=clipBottom;
+            if((I(style,4)&8)!=0){left=Math.Max(left,I(style,88)-target.OriginX);top=Math.Max(top,I(style,92)-target.OriginY);right=Math.Min(right,I(style,96)-target.OriginX);bottom=Math.Min(bottom,I(style,100)-target.OriginY);}
+            Resource texture;resources.TryGetValue(P(style,32),out texture);
+            bool textured=Marshal.ReadByte(style,9)!=0&&texture!=null&&(texture.Pixels!=null||texture.Surface!=null);
+            OpenGlDevice.Image image=textured?GpuImage(texture):new OpenGlDevice.Image();
+            gpu.Begin(target.Gpu,style,image.Texture,textured?texture.Width:1,textured?texture.Height:1,textured&&texture.Gradient,image.Flipped,format,left,top,right,bottom);
+            gpuBatch=true;target.GpuNewer=true;HardwareBatches++;
+        }
+        void EndBatch(){if(gpuBatch){gpu.End();gpuBatch=false;}}
         static float Edge(Vertex a,Vertex b,float x,float y) { return (x-a.X)*(b.Y-a.Y)-(y-a.Y)*(b.X-a.X); }
         static int Clamp(float x) { return Math.Max(0,Math.Min(255,(int)(x*255+0.5f))); }
         void Triangle(IntPtr style,Vertex a,Vertex b,Vertex c,int format) {
             float area=Edge(a,b,c.X,c.Y);if(Math.Abs(area)<0.00001||float.IsNaN(area)||float.IsInfinity(area))return;
             if(area<0){Vertex swap=b;b=c;c=swap;area=-area;}
+            if(gpuBatch){Triangles++;gpu.Triangle(a,b,c);return;}
             int minX=Math.Max(clipX,(int)Math.Floor(Math.Min(a.X,Math.Min(b.X,c.X))));
             int minY=Math.Max(clipY,(int)Math.Floor(Math.Min(a.Y,Math.Min(b.Y,c.Y))));
             int maxX=Math.Min(clipRight-1,(int)Math.Ceiling(Math.Max(a.X,Math.Max(b.X,c.X))));
@@ -547,6 +674,7 @@ namespace IggyViewer {
             return Clamp((1-sa)*dp+(1-da)*s*sa+sa*da*b);
         }
         public Bitmap Snapshot() {
+            EnsureCpu(screen);
             Bitmap bitmap=new Bitmap(screen.Width,screen.Height,PixelFormat.Format32bppPArgb);
             BitmapData data=bitmap.LockBits(new Rectangle(0,0,bitmap.Width,bitmap.Height),ImageLockMode.WriteOnly,PixelFormat.Format32bppPArgb);
             for(int y=0;y<screen.Height;y++) {
@@ -574,6 +702,8 @@ namespace IggyViewer {
         }
         void Free(IntPtr handle) {
             Resource r;if(!resources.TryGetValue(handle,out r))return;
+            if(gpu!=null)gpu.DeleteTexture(r.Texture);
+            if(gpu!=null)gpu.DeleteTarget(r.Surface);
             if(r.Data!=IntPtr.Zero)Marshal.FreeHGlobal(r.Data);
             if(r.Indices!=IntPtr.Zero)Marshal.FreeHGlobal(r.Indices);
             resources.Remove(handle);
@@ -587,6 +717,6 @@ namespace IggyViewer {
         public void BeginMorphFrame(){foreach(FocalMorph focal in focalOwners.Values)focal.Ratios.Clear();}
         public void AddMorphInstance(IntPtr definition,float ratio){List<FocalMorph> fills;if(focalDefinitions.TryGetValue(definition,out fills))foreach(FocalMorph focal in fills)focal.AddRatio(ratio);}
         public void ClearResources() { foreach(IntPtr key in new List<IntPtr>(resources.Keys))Free(key);focalOwners.Clear();focalDefinitions.Clear();gradientOwners.Clear(); }
-        public void Dispose() { ClearResources();Marshal.FreeHGlobal(Interface);Interface=IntPtr.Zero;GC.KeepAlive(callbacks); }
+        public void Dispose() { ClearResources();ReleaseSurfaces();if(gpu!=null){gpu.Dispose();gpu=null;}Marshal.FreeHGlobal(Interface);Interface=IntPtr.Zero;GC.KeepAlive(callbacks); }
     }
 }

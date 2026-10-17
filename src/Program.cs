@@ -20,6 +20,13 @@ namespace IggyViewer {
             string logPath=Path.ChangeExtension(Application.ExecutablePath,".log");
             Log log=new Log(logPath);
             try {
+                string renderer="auto";int rendererOption=Array.IndexOf(args,"--renderer");
+                if(rendererOption>=0) {
+                    if(rendererOption+1>=args.Length)throw new ArgumentException("--renderer requires auto, opengl or software.");
+                    renderer=args[rendererOption+1].ToLowerInvariant();
+                    if(renderer!="auto"&&renderer!="opengl"&&renderer!="software")throw new ArgumentException("Renderer must be auto, opengl or software.");
+                    System.Collections.Generic.List<string> remaining=new System.Collections.Generic.List<string>(args);remaining.RemoveRange(rendererOption,2);args=remaining.ToArray();
+                }
                 string dll=null;int dllOption=Array.IndexOf(args,"--dll");
                 if(dllOption>=0) {
                     if(dllOption+1>=args.Length)throw new ArgumentException("--dll requires a DLL path.");
@@ -44,10 +51,11 @@ namespace IggyViewer {
                 if(args.Length>=3&&args[0]=="--self-test-loaderinfo") {SelfTest.RunLoaderInfo(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-runtime") {SelfTest.RunRuntime(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-focal-instances") {SelfTest.RunFocalInstances(dll,args[1],args[2],log);return 0;}
+                if(args.Length>=3&&args[0]=="--self-test-opengl") {SelfTest.RunOpenGl(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--render-all") {
                     int w=args.Length>=5?int.Parse(args[3]):960,h=args.Length>=5?int.Parse(args[4]):640;
                     Directory.CreateDirectory(args[2]);
-                    using(Native native=new Native(dll,log,correctFocal)) {
+                    using(Native native=new Native(dll,log,correctFocal,renderer:renderer)) {
                         native.Open(args[1],w,h);
                         for(int frame=1;frame<=native.TotalFrames;frame++) {
                             native.Seek(frame);
@@ -62,7 +70,7 @@ namespace IggyViewer {
                     int w=960,h=540,frames=1;
                     if(args.Length>=5) {w=int.Parse(args[3]);h=int.Parse(args[4]);}
                     if(args.Length>=6)frames=int.Parse(args[5]);
-                    using(Native native=new Native(dll,log,correctFocal)) {
+                    using(Native native=new Native(dll,log,correctFocal,renderer:renderer)) {
                         native.Open(args[1],w,h);
                         if(args.Length>=7)native.Seek(int.Parse(args[6]));
                         for(int i=0;i<frames;i++) {
@@ -77,7 +85,7 @@ namespace IggyViewer {
                 Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
                 if(args.Length>=3&&args[0]=="--self-test-keyboard") {SelfTest.RunKeyboard(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-cursor") {SelfTest.RunCursor(dll,args[1],args[2],log);return 0;}
-                using(Native native=new Native(dll,log,correctFocal))using(PlayerForm form=new PlayerForm(native,logPath,log)) {
+                using(Native native=new Native(dll,log,correctFocal,renderer:renderer))using(PlayerForm form=new PlayerForm(native,logPath,log)) {
                     if(args.Length>=3&&args[0]=="--ui-test") {
                         form.ShowInTaskbar=false;form.Opacity=0;form.Show();Application.DoEvents();
                         form.OpenFile(args[1],false);
@@ -98,6 +106,15 @@ namespace IggyViewer {
         }
     }
     internal sealed class Canvas : Control {
+        SoftwareRenderer renderer;
+        bool printing,hardwareCanvas;
+        internal Action<Exception> RenderFailed;
+        internal void SetRenderer(SoftwareRenderer value){
+            renderer=value;bool hardware=value!=null&&value.HardwareAccelerated;
+            if(hardwareCanvas!=hardware){hardwareCanvas=hardware;DoubleBuffered=!hardware;if(IsHandleCreated)RecreateHandle();}
+        }
+        bool HardwareFrame {get{return renderer!=null&&renderer.HardwareAccelerated&&HasMovie!=null&&HasMovie();}}
+        protected override CreateParams CreateParams {get{CreateParams value=base.CreateParams;value.ClassStyle|=0x20;return value;}}
         [System.Runtime.InteropServices.DllImport("user32")] static extern IntPtr SetCursor(IntPtr cursor);
         [System.Runtime.InteropServices.DllImport("user32")] static extern IntPtr WindowFromPoint(Point point);
         internal bool MovieCursorHidden {get;private set;}
@@ -130,6 +147,7 @@ namespace IggyViewer {
             return base.PreProcessMessage(ref message);
         }
         protected override void WndProc(ref Message message) {
+            if(message.Msg==0x317||message.Msg==0x318){bool previous=printing;printing=true;try{base.WndProc(ref message);}finally{printing=previous;}return;}
             // A null cursor here is local to this client area. ShowCursor's
             // global counter would also hide it over toolbars and dialogs.
             if(message.Msg==0x20&&message.WParam==Handle&&(message.LParam.ToInt64()&0xffff)==1&&MovieCursorHidden) {
@@ -153,7 +171,15 @@ namespace IggyViewer {
             }
             base.WndProc(ref message);
         }
-        protected override void OnPaint(PaintEventArgs e) {base.OnPaint(e);if(Frame!=null)e.Graphics.DrawImageUnscaled(Frame,0,0);}
+        protected override void OnPaintBackground(PaintEventArgs e){if(!HardwareFrame||printing)base.OnPaintBackground(e);}
+        protected override void OnPaint(PaintEventArgs e) {
+            if(HardwareFrame) {
+                if(printing){using(Bitmap image=renderer.Snapshot())e.Graphics.DrawImageUnscaled(image,0,0);}
+                else {try{renderer.Present(Handle,ClientSize.Width,ClientSize.Height);}catch(Exception ex){if(RenderFailed!=null)RenderFailed(ex);else throw;}}
+                return;
+            }
+            base.OnPaint(e);if(Frame!=null)e.Graphics.DrawImageUnscaled(Frame,0,0);
+        }
         protected override void Dispose(bool disposing) {if(disposing){SetMovieCursor(false,Cursors.Default);if(Frame!=null)Frame.Dispose();}base.Dispose(disposing);}
     }
     internal sealed class PlayerForm : Form {
@@ -170,6 +196,7 @@ namespace IggyViewer {
         readonly ToolStripMenuItem pause=new ToolStripMenuItem("Pause") {CheckOnClick=true};
         public PlayerForm(Native native,string logPath,Log log) {
             this.native=native;this.log=log;
+            canvas.RenderFailed=delegate(Exception ex){timer.Stop();log.Write(ex.ToString());status.Text="OpenGL display failed. Select Playback > Renderer > Software.";};
             Text="Iggy Player — native 64-bit runtime";Width=1040;Height=680;
             MenuStrip menu=new MenuStrip();
             ToolStripMenuItem file=new ToolStripMenuItem("File");
@@ -187,6 +214,12 @@ namespace IggyViewer {
                 if(native.FileName!=null){OpenFile(native.FileName);Seek(current);pause.Checked=wasPaused;}
             };
             playback.DropDownItems.Add(focal);
+            ToolStripMenuItem rendering=new ToolStripMenuItem("Renderer");
+            ToolStripMenuItem hardware=new ToolStripMenuItem("OpenGL"),software=new ToolStripMenuItem("Software");
+            Action updateRendering=delegate {hardware.Checked=native.Renderer.HardwareAccelerated;software.Checked=!hardware.Checked;};
+            hardware.Click+=delegate {try{native.Renderer.SetBackend("opengl");updateRendering();RenderFrame();}catch(Exception ex){log.Write(ex.ToString());MessageBox.Show(this,ex.Message,"OpenGL unavailable",MessageBoxButtons.OK,MessageBoxIcon.Error);}};
+            software.Click+=delegate {native.Renderer.SetBackend("software");updateRendering();RenderFrame();};
+            rendering.DropDownItems.Add(hardware);rendering.DropDownItems.Add(software);playback.DropDownItems.Add(rendering);updateRendering();
             menu.Items.Add(file);menu.Items.Add(playback);MainMenuStrip=menu;
             FlowLayoutPanel transport=new FlowLayoutPanel {Dock=DockStyle.Top,Height=34,Padding=new Padding(4,2,0,0)};
             Button toggle=new Button {Text="Play / Pause",AutoSize=true};toggle.Click+=delegate {pause.Checked=!pause.Checked;canvas.Focus();};
@@ -219,7 +252,7 @@ namespace IggyViewer {
                 native.Open(file,Math.Max(1,canvas.Width),Math.Max(1,canvas.Height));native.SetPaused(paused);
                 updatingFrame=true;frame.Maximum=native.TotalFrames;frame.Value=1;updatingFrame=false;
                 frames.Text="/ "+native.TotalFrames;Text=Path.GetFileName(file)+" — Iggy Player";
-                status.Text="Native DLL: "+native.StageWidth+" × "+native.StageHeight+" | Software renderer (experimental) | File → Open log";timer.Start();RenderFrame();canvas.Focus();
+                UpdateStatus();timer.Start();RenderFrame();canvas.Focus();
             }
             catch(Exception ex) {
                 log.Write(ex.ToString());status.Text=ex.Message;
@@ -230,6 +263,7 @@ namespace IggyViewer {
         }
         internal void TestFrame(int value){Seek(value);}
         internal void TestRenderFrame(){RenderFrame();}
+        void UpdateStatus(){status.Text="Native DLL: "+native.StageWidth+" × "+native.StageHeight+" | "+native.Renderer.BackendName+" | File → Open log";}
         void UpdateCursor() {canvas.SetMovieCursor(cursorActive&&native.HideSystemCursor,cursorActive&&native.HandCursor?Cursors.Hand:Cursors.Default);}
         void Seek(int value) {pause.Checked=true;native.Seek(value);RenderFrame();}
         void RenderFrame() {
@@ -237,7 +271,8 @@ namespace IggyViewer {
             try {
                 if(!native.Frame(!paused)) {timer.Stop();canvas.SetMovieCursor(false,Cursors.Default);status.Text="Native playback failed — see log";return;}
                 UpdateCursor();
-                Bitmap old=canvas.Frame;canvas.Frame=native.Renderer.Snapshot();if(old!=null)old.Dispose();canvas.Invalidate();
+                canvas.SetRenderer(native.Renderer);
+                Bitmap old=canvas.Frame;canvas.Frame=native.Renderer.HardwareAccelerated?null:native.Renderer.Snapshot();if(old!=null)old.Dispose();canvas.Invalidate();UpdateStatus();
                 updatingFrame=true;frame.Value=Math.Min(frame.Maximum,Math.Max(1,native.CurrentFrame));updatingFrame=false;
             } catch(Exception ex) {timer.Stop();canvas.SetMovieCursor(false,Cursors.Default);log.Write(ex.ToString());status.Text=ex.Message;}
         }

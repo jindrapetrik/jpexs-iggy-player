@@ -3,7 +3,9 @@
 A standalone Windows x64 player for 64-bit Iggy movies and the supplied
 Iggy 1.2.30 and 1.2.56 runtimes. The native DLL loads movies, runs
 ActionScript and produces geometry. The application provides a window,
-input events and an experimental software implementation of GDraw.
+input events and OpenGL and software implementations of GDraw. Hardware
+OpenGL rendering is selected automatically when a compatible driver is
+available; otherwise the player uses the software renderer.
 Playback does not require FFDec, Java or conversion to SWF.
 
 ## Requirements and DLL setup
@@ -45,6 +47,7 @@ Controls:
 - **Play / Pause** starts or pauses playback.
 - The previous/next buttons and frame field seek to a frame, numbered from 1.
 - **Playback > Reload** reopens the current file.
+- **Playback > Renderer** switches between OpenGL and software rendering.
 - **Playback > Correct focal morphs** toggles compensation for the DLL's
   focal morph matrix and focus interpolation.
 - **File > Save frame as PNG** saves the rendered frame.
@@ -63,6 +66,32 @@ when the pointer is stationary. Disabled buttons and useHandCursor=false
 are respected. Mouse.hide() and Mouse.show() control the system cursor over
 the canvas so movies can draw their own cursor. Toolbars, menus and other
 windows retain a visible cursor.
+
+## Hardware acceleration
+
+The OpenGL backend draws geometry, bitmaps, gradients, stencil masks,
+blend modes and filters on the GPU. Intermediate surfaces stay in GPU
+memory, and the canvas presents the final texture directly. PNG export
+and screenshot capture read the resulting pixels back only when requested.
+Large blur radii use the software filter as a fallback.
+
+Install the GPU manufacturer's OpenGL driver. The backend requires shader
+and framebuffer support, textures of at least 8192 pixels and renderbuffers
+of at least 4096 pixels. Software OpenGL drivers are rejected. The selected
+backend appears in the status bar; the log records the GPU and driver.
+To select a backend explicitly:
+
+~~~powershell
+.\IggyPlayer.exe --renderer opengl "test-data\graphics.iggy"
+.\IggyPlayer.exe --renderer software "test-data\graphics.iggy"
+~~~
+
+The default is --renderer auto. An explicit opengl request reports an
+initialization error if acceleration is unavailable. The renderer menu
+also allows switching back to software while a movie is open.
+
+See [OPENGL.md](OPENGL.md) for implementation details, comparison tests
+and measured performance.
 
 ## Imports, textures and runtime services
 
@@ -110,6 +139,7 @@ and a JDK. The checked-in ABC resources are sufficient for a normal build.
 ~~~powershell
 .\test.ps1
 .\test.ps1 -PlayerPath "$PWD\IggyPlayer.updated.exe"
+.\test.ps1 -TestOpenGl
 .\test.ps1 -DllPath "$PWD\lib\iggy_w64.dll" -OutputDirectory "$PWD\test-output\legacy"
 ~~~
 
@@ -119,6 +149,11 @@ AS3, keyboard input, cursor visibility, playback timing, LoaderInfo, runtime
 services, resource lifetime and GUI captures. It checks that source movies
 remain unchanged. Results and screenshots are written to test-output.
 Each executable writes its own .log file.
+
+The optional -TestOpenGl suite requires hardware OpenGL. It compares all
+67 graphics frames against the software renderer, checks alpha filters,
+direct presentation, backend switching, resizing and resource lifetime,
+and measures both backends at 1600 x 1000.
 
 Additional game-specific regression modes are available for a compatible
 external fixture. They depend on its timeline and AS3 object layout and
@@ -146,6 +181,7 @@ IggyPlayer.exe --self-test-loaderinfo test-data/loaderinfo.iggy output-directory
 IggyPlayer.exe --self-test-runtime test-data/runtime.iggy output-directory
 IggyPlayer.exe --self-test-zero-scale test-data/zero-scale.iggy output-directory
 IggyPlayer.exe --self-test-clock test-data/graphics.iggy output-directory
+IggyPlayer.exe --self-test-opengl test-data/graphics.iggy output-directory
 IggyPlayer.exe --self-test-focal-instances test-data/focal-instances.iggy output-directory
 IggyPlayer.exe --ui-test test-data/graphics.iggy window.png 47
 IggyPlayer.exe --native-focal --render test-data/graphics.iggy native63.png 960 640 1 63
@@ -155,6 +191,9 @@ Optional fixture-specific modes are --self-test-fixups,
 --self-test-game-playback, --self-test-play-response and
 --self-test-level-exit. Each takes an input movie and output directory.
 The --dll PATH option overrides automatic DLL lookup for any mode.
+The --renderer auto|opengl|software option selects the backend for normal
+playback, --render, --render-all and --ui-test. Regression modes select
+their own backends to keep reference tests deterministic.
 Noninteractive modes return 0 on success and 1 on failure without error
 dialogs.
 
