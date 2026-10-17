@@ -83,6 +83,7 @@ namespace IggyViewer {
                     return 0;
                 }
                 Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
+                if(args.Length>=3&&args[0]=="--self-test-game-keyboard") {SelfTest.RunGameKeyboard(dll,args[1],args[2],log,renderer);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-keyboard") {SelfTest.RunKeyboard(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-cursor") {SelfTest.RunCursor(dll,args[1],args[2],log);return 0;}
                 using(Native native=new Native(dll,log,correctFocal,renderer:renderer))using(PlayerForm form=new PlayerForm(native,logPath,log)) {

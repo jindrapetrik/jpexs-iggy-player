@@ -17,7 +17,8 @@ namespace IggyViewer {
         static bool KeyFlag(Native native,string field) {return ReadValue(native,field,"IggyValueGetBooleanRS")!=0;}
         public static void RunKeyboard(string dll,string fixture,string output,Log log) {
             Directory.CreateDirectory(output);string hash=Hash(File.ReadAllBytes(fixture));
-            using(Native native=new Native(dll,log)) {
+            foreach(string renderer in new string[]{"software","auto"})
+            using(Native native=new Native(dll,log,renderer:renderer)) {
                 native.Open(fixture,550,400);
                 native.Key(65,true);
                 Check(ReadValue(native,"downs")==1&&ReadValue(native,"ups")==0,"Key press dispatches KEY_DOWN, not KEY_UP");
@@ -84,13 +85,30 @@ namespace IggyViewer {
                     Check(canvas.Focused,"Playback button returns keyboard focus to movie");
                     WindowKey(canvas,65,true);Check(!KeyFlag(native,"shifted"),"No stuck Shift after toolbar focus");WindowKey(canvas,65,false);
                     Check(ReadValue(native,"ticks")==ticks,"Keyboard input does not advance paused timelines");
+                    Call(native,"","focusTarget");uint targetDowns=ReadValue(native,"targetDowns"),focusOuts=ReadValue(native,"targetFocusOuts");
+                    WindowKey(canvas,68,true);WindowKey(canvas,68,false);
+                    Check(ReadValue(native,"targetDowns")==targetDowns+1&&KeyFlag(native,"targetFocused"),"Attached sprite retains keyboard focus");
+                    Call(native,"","detachHolder");Call(native,"","reattachHolder");
+                    WindowKey(canvas,87,true);WindowKey(canvas,87,false);
+                    Check(ReadValue(native,"targetDowns")==targetDowns+2&&KeyFlag(native,"targetFocused")&&ReadValue(native,"targetFocusOuts")==focusOuts,"Reattached subtree retains focus without spurious focus events");
+                    Call(native,"","detachHolder");native.Bind<Native.VoidPI>("IggyPlayerGarbageCollect")(native.Player,100);
+                    uint stageDowns=ReadValue(native,"downs");
+                    WindowKey(canvas,65,true);WindowKey(canvas,65,false);
+                    Check(ReadValue(native,"downs")==stageDowns+1&&KeyFlag(native,"focusCleared"),"First key after removing a focused subtree reaches Stage");
+                    Check(ReadValue(native,"targetDowns")==targetDowns+2&&ReadValue(native,"targetFocusOuts")==focusOuts+1,"Removed target receives focusOut once and no keyboard input");
+                    Call(native,"","detachInput");string inputBefore=ReadString(native,"inputText");
+                    SendMessage(canvas.Handle,0x102,(IntPtr)'z',IntPtr.Zero);
+                    Check(KeyFlag(native,"focusCleared")&&ReadString(native,"inputText")==inputBefore,"WM_CHAR does not edit a detached text field");
+                    Call(native,"","restoreInput");SendMessage(canvas.Handle,0x102,(IntPtr)'c',IntPtr.Zero);
+                    Check(native.TextFieldFocused&&ReadString(native,"inputText")==inputBefore+"c","Attached input keeps focus and accepts WM_CHAR");
+                    Check(ReadValue(native,"ticks")==ticks,"Focus repair and text input do not advance paused timelines");
                     Check(native.Frame(false),"Draw after keyboard events");
                     using(Bitmap image=native.Renderer.Snapshot())image.Save(Path.Combine(output,"keyboard.png"),ImageFormat.Png);
                 }
             }
             foreach(string message in log.Messages)Check(message.IndexOf("Uncaught exception",StringComparison.Ordinal)<0,"No AS3 keyboard exceptions");
             Check(Hash(File.ReadAllBytes(fixture))==hash,"Keyboard fixture unchanged");
-            log.Write("PASS: AS3 KEY_DOWN/KEY_UP, WinForms navigation and system keys, locations/modifiers, text input/backspace, auto-repeat, canvas/toolbar focus, release on focus loss/reload, paused timelines.");
+            log.Write("PASS: software/auto rendering, AS3 KEY_DOWN/KEY_UP, WinForms navigation and system keys, locations/modifiers, text input/backspace, auto-repeat, canvas/toolbar focus, detached focus repair, attached/reparented targets, GC, release on focus loss/reload, paused timelines.");
         }
     }
 }

@@ -46,6 +46,7 @@ namespace IggyViewer {
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate void MakeMouse(IntPtr ev, int x, int y);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate void MakeKey(IntPtr ev, int key, int down);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate void MakeKeyEvent(IntPtr ev, int type, int code, int location);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate void SetFocus(IntPtr player,IntPtr target,int keyCode);
         readonly IntPtr module;
         readonly int rootInstanceOffset,stageInstanceOffset;
         readonly bool modernDll,correctLoaderInfo;
@@ -91,6 +92,7 @@ namespace IggyViewer {
         readonly Ready ready, valid;
         readonly PtrP properties;
         readonly PtrP focusedText;
+        readonly SetFocus setFocus;
         readonly EventCall dispatch;
         readonly MakeMouse mouseMove;
         readonly MakeKeyEvent key;
@@ -186,6 +188,7 @@ namespace IggyViewer {
             goToFrame=Bind<VoidPII>("IggyPlayerGotoFrameRS");
             properties = Bind<PtrP>("IggyPlayerProperties");
             focusedText=Bind<PtrP>("IggyIMEGetFocusedTextfield");
+            setFocus=Bind<SetFocus>("IggyPlayerSetFocusRS");
             dispatch = Bind<EventCall>("IggyPlayerDispatchEventRS");
             mouseMove = Bind<MakeMouse>("IggyMakeEventMouseMove");
             mouseButton = Bind<VoidPI>("IggyMakeEventMouseButton");
@@ -531,6 +534,7 @@ namespace IggyViewer {
         public void MouseButton(int button, bool down) { Send(p => mouseButton(p, button * 2 + (down ? 1 : 2))); }
         public void Key(int code,bool down,int location=0) {
             if(Player==IntPtr.Zero||code<0||code>255)return;
+            ClearDetachedKeyboardFocus();
             location&=3;
             int identity=(code<<2)|location;
             if(down)pressedKeys[identity]=code;else pressedKeys.Remove(identity);
@@ -543,7 +547,19 @@ namespace IggyViewer {
             foreach(int identity in held)Key(identity>>2,false,identity&3);
         }
         public void FocusLost() {ReleaseKeys();Send(p => focusLost(p));}
-        public void Character(char ch) { Send(p => character(p, ch)); }
+        void ClearDetachedKeyboardFocus() {
+            if(Player==IntPtr.Zero)return;
+            // Both supplied runtimes retain focus on removed display objects.
+            // Keyboard events then bubble along a detached parent chain and
+            // never reach Stage. Keep attached targets (including text input)
+            // and let the public focus API deliver the normal focus events.
+            IntPtr focused=Marshal.ReadIntPtr(Player,modernDll?10744:10664);
+            if(focused==IntPtr.Zero)return;
+            IntPtr stage=IntPtr.Add(Player,stageInstanceOffset),item=focused;
+            for(int depth=0;item!=IntPtr.Zero&&depth<10000;depth++,item=Marshal.ReadIntPtr(item,128))if(item==stage)return;
+            setFocus(Player,IntPtr.Zero,0);
+        }
+        public void Character(char ch) { ClearDetachedKeyboardFocus();Send(p => character(p, ch)); }
         public void Wheel(int delta) { Send(p => mouseWheel(p, delta)); }
         public void MouseLeave() { mouseInside=false;Send(p => mouseLeave(p)); }
         public void Close() {

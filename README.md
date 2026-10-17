@@ -56,6 +56,9 @@ Controls:
 Click the canvas to give the movie keyboard focus. Arrow keys, Tab, Enter,
 modifiers and text input are forwarded to the movie. Editing the frame
 field keeps keyboard focus there. Held keys are released on focus loss.
+Before dispatching keys or text, the host clears native focus retained by
+a removed display object so events reach Stage after scene transitions.
+Attached text fields and reattached subtrees retain their focus.
 
 Pausing stops timelines while retaining mouse interaction and text editing.
 Input is dispatched directly without advancing a simulation frame. Playback
@@ -188,12 +191,14 @@ IggyPlayer.exe --native-focal --render test-data/graphics.iggy native63.png 960 
 ~~~
 
 Optional fixture-specific modes are --self-test-fixups,
---self-test-game-playback, --self-test-play-response and
+--self-test-game-playback, --self-test-game-keyboard, --self-test-play-response and
 --self-test-level-exit. Each takes an input movie and output directory.
 The --dll PATH option overrides automatic DLL lookup for any mode.
 The --renderer auto|opengl|software option selects the backend for normal
 playback, --render, --render-all and --ui-test. Regression modes select
 their own backends to keep reference tests deterministic.
+--self-test-game-keyboard uses the selected renderer and checks the actual
+preloader/menu button transition, first WASD/arrow input and player movement.
 Noninteractive modes return 0 on success and 1 on failure without error
 dialogs.
 

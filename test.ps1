@@ -34,6 +34,7 @@ if ($TestOpenGl) { Invoke-PlayerTest @('--self-test-opengl', $movie, (Join-Path 
 if ($GameMovie) {
     Invoke-PlayerTest @('--self-test-fixups', $GameMovie, (Join-Path $output 'game')) 'game.log'
     Invoke-PlayerTest @('--self-test-game-playback', $GameMovie, (Join-Path $output 'game-playback')) 'game-playback.log'
+    Invoke-PlayerTest @('--self-test-game-keyboard', $GameMovie, (Join-Path $output 'game-keyboard')) 'game-keyboard.log'
     Invoke-PlayerTest @('--self-test-play-response', $GameMovie, (Join-Path $output 'play-response')) 'play-response.log'
     Invoke-PlayerTest @('--self-test-level-exit', $GameMovie, (Join-Path $output 'level-exit')) 'level-exit.log'
 } else {

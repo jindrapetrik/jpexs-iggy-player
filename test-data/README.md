@@ -33,6 +33,9 @@ java -jar PATH_TO_FFDEC_CLI_JAR -swf2iggy test-data/cursor.swf test-data/cursor.
 Replace cursor with another fixture name as needed. Tests cover hand cursors
 and Mouse.hide/show, keyboard events, LoaderInfo counters, SharedObject
 persistence, Loader errors and assignments to a zero-length scaleY axis.
+The keyboard fixture also removes a focused subtree and text field, checks
+that the next input reaches Stage, and verifies focus remains intact for
+attached or reattached objects. It runs with software and automatic rendering.
 Non-ASCII strings are intentional Unicode persistence test data. See the
 [LoaderInfo notes](loaderinfo/README.md) and
 [runtime API notes](runtime/README.md).
