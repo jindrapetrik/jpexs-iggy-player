@@ -10,6 +10,9 @@ keyboard controls shown on the canvas:
 - 6: format-0 PCM16, 44100 Hz (serialized big endian).
 - L: play MP3 twice; O: overlap stereo and mono MP3.
 - P: stop the channels; S: SoundMixer.stopAll().
+- C: chain three sounds through SOUND_COMPLETE; D: play PCM three times.
+- V: fractional start time, dynamic numeric arguments and SoundTransform.
+- R: stop the previous channel twice; N: frame-2 timeline stop for PCM16.
 
 Embedded tones last 0.4 seconds, at low amplitude. tone-vbr.mp3 is a
 one-second standalone decoder regression for variable bitrate and positive/
@@ -40,5 +43,8 @@ Run the optional audible regression test with:
 
 The test checks the PCM blocks submitted to WaveOut, including amplitude
 and pitch, channel state/position, MP3 decoder lifetime and unchanged input.
+It verifies one SOUND_COMPLETE per natural completion, event targets/flags,
+loop counts, chained listeners, argument conversions, native/managed GC,
+stopped-channel slot reuse and cancellation without completion events.
 It needs an audio device and the Windows MP3 ACM codec. Default regression
 tests and image export do not open an audio output device.

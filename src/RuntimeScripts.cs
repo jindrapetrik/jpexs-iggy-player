@@ -105,8 +105,9 @@ namespace IggyViewer {
     }
 
     internal sealed class RuntimeScriptPlan {
-        readonly bool shared,loader,fileList;
+        readonly bool shared,loader,fileList,audio;
         internal bool NeedsSharedObject {get{return shared;}}
+        internal bool NeedsAudio {get{return audio;}}
         public RuntimeScriptPlan(IEnumerable<byte[]> sources) {
             HashSet<string> references=new HashSet<string>(StringComparer.Ordinal),definitions=new HashSet<string>(StringComparer.Ordinal);
             foreach(byte[] source in sources)foreach(byte[] abc in Container.ReadAbcs(source)) {
@@ -115,6 +116,8 @@ namespace IggyViewer {
             shared=references.Contains("flash.net::SharedObject")&&!definitions.Contains("flash.net::SharedObject");
             loader=references.Contains("flash.display::Loader")&&!definitions.Contains("flash.display::Loader")&&!definitions.Contains("flash.net::URLRequest")&&!definitions.Contains("flash.events::IOErrorEvent");
             fileList=references.Contains("flash.net::FileReferenceList")&&!definitions.Contains("flash.net::FileReferenceList");
+            audio=references.Contains("flash.media::Sound")||references.Contains("flash.media::SoundChannel");
+            if(audio&&references.Contains("::__IggyHostSoundEvents"))throw new InvalidDataException("Movie conflicts with the host sound completion class.");
             if((loader||fileList)&&(definitions.Contains("com.jpexs.iggy.runtime::HostLoader")||definitions.Contains("com.jpexs.iggy.runtime::HostURLRequest")||definitions.Contains("com.jpexs.iggy.runtime::HostLoaderInfo")||definitions.Contains("com.jpexs.iggy.runtime::HostIOErrorEvent")||definitions.Contains("com.jpexs.iggy.runtime::HostFileReferenceList")))
                 throw new InvalidDataException("Movie conflicts with the Iggy runtime compatibility namespace.");
             if(shared&&definitions.Contains("com.jpexs.iggy.runtime::HostCodec"))throw new InvalidDataException("Movie conflicts with the SharedObject codec namespace.");
@@ -126,11 +129,12 @@ namespace IggyViewer {
             }
         }
         public byte[] Apply(byte[] source,bool main,Log log) {
-            if(!shared&&!loader&&!fileList)return source;
+            if(!shared&&!loader&&!fileList&&!audio)return source;
             List<byte[]> abcs=new List<byte[]>();
             if(main) {
                 if(shared)abcs.Add(Resource("IggyViewer.SharedObject.abc"));
                 if(loader||fileList)abcs.Add(Resource("IggyViewer.Loader.abc"));
+                if(audio)abcs.Add(Resource("IggyViewer.Audio.abc"));
             }
             bool changed=abcs.Count!=0;
             foreach(byte[] abc in Container.ReadAbcs(source)) {

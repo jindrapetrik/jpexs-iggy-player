@@ -16,7 +16,7 @@ $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
 $sources = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot '../src') -Filter '*.cs' | ForEach-Object FullName)
 $sources += Join-Path $PSScriptRoot 'LoaderInfoProbe.cs'
 $output = Join-Path $PSScriptRoot 'LoaderInfoProbe.exe'
-& $compiler /nologo /unsafe /optimize+ /platform:x64 /target:exe /main:IggyViewer.LoaderInfoProbe "/out:$output" /reference:System.Drawing.dll /reference:System.Windows.Forms.dll "/resource:$(Join-Path $PSScriptRoot '../runtime/sharedobject.abc'),IggyViewer.SharedObject.abc" "/resource:$(Join-Path $PSScriptRoot '../runtime/loader.abc'),IggyViewer.Loader.abc" $sources
+& $compiler /nologo /unsafe /optimize+ /platform:x64 /target:exe /main:IggyViewer.LoaderInfoProbe "/out:$output" /reference:System.Drawing.dll /reference:System.Windows.Forms.dll "/resource:$(Join-Path $PSScriptRoot '../runtime/sharedobject.abc'),IggyViewer.SharedObject.abc" "/resource:$(Join-Path $PSScriptRoot '../runtime/loader.abc'),IggyViewer.Loader.abc" "/resource:$(Join-Path $PSScriptRoot '../runtime/audio.abc'),IggyViewer.Audio.abc" $sources
 if ($LASTEXITCODE -ne 0) { throw 'Diagnostic compilation failed' }
 & $output ([IO.Path]::GetFullPath($DllPath)) ([IO.Path]::GetFullPath($MoviePath)) ([IO.Path]::GetFullPath($LogPath))
 if ($LASTEXITCODE -ne 0) { throw 'LoaderInfo diagnostic failed' }

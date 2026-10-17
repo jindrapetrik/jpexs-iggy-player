@@ -36,7 +36,7 @@ public class CreateAudioFixture {
     }
     public static void main(String[] args) throws Exception {
         Path directory = Path.of(args[0]);
-        SWF swf = new SWF(); swf.version = 15; swf.frameCount = 1; swf.frameRate = 24;
+        SWF swf = new SWF(); swf.version = 15; swf.frameCount = 2; swf.frameRate = 24;
         swf.displayRect = new RECT(0, 10000, 0, 4000);
         FileAttributesTag attributes = new FileAttributesTag(swf); attributes.actionScript3 = true; swf.addTag(attributes);
         sound(swf, 1, 3, 2, 16, false, pcm(22050, 16, 440));
@@ -57,6 +57,8 @@ public class CreateAudioFixture {
         ActionScript3Parser.compile(Files.readString(directory.resolve("scripts/Main.as")), abc, index, "Main.as", abc.instance_info.size(), abc.script_info.size(), false, null);
         symbols.tags.add(0); symbols.names.add("Main"); swf.addTag(symbols);
         StartSoundTag start = new StartSoundTag(swf); start.soundId = 1; start.soundInfo = new SOUNDINFO(); swf.addTag(start);
+        swf.addTag(new ShowFrameTag(swf));
+        StartSoundTag stop = new StartSoundTag(swf); stop.soundId = 1; stop.soundInfo = new SOUNDINFO(); stop.soundInfo.syncStop = true; swf.addTag(stop);
         swf.addTag(new ShowFrameTag(swf)); swf.addTag(new EndTag(swf));
         try (OutputStream output = new FileOutputStream(args[0] + ".swf")) { swf.saveTo(output); }
         SwfToIggyConvertor.createIggy(swf, IggyFile.Variant.X64, "audio.swf").saveTo(new File(args[0] + ".iggy"));

@@ -62,6 +62,7 @@ namespace IggyViewer {
                 Check(AudioRms(native.AudioSnapshot())>100,"Timeline StartSound produces PCM output");
                 AudioWait(native,600);
                 foreach(int key in new int[]{49,50,51,52,53,54}) {
+                    uint completed=ReadValue(native,"completed");
                     AudioKey(native,key);Check(ReadValue(native,"started","IggyValueGetBooleanRS")==1,"Sound.play returns a channel for "+key);
                     AudioWait(native,140);byte[] mixed=native.AudioSnapshot();double rms=AudioRms(mixed);
                     log.Write("Audio format key "+key+": output bytes="+mixed.Length+", RMS="+rms.ToString("F2"));
@@ -71,30 +72,57 @@ namespace IggyViewer {
                     Check(AudioPosition(native)>20,"SoundChannel position advances for "+key);
                     AudioWait(native,650);
                     Check(native.AudioChannels==0,"Sound ends after its sample count for "+key);
+                    Check(ReadValue(native,"completed")==completed+1,"Exactly one SOUND_COMPLETE for "+key);
+                    Check(ReadValue(native,"completedPosition")==400,"Completed channel position is its duration");
+                    Check(native.TrackedSoundChannels==0,"Completed channel reference released");
                 }
+                Check(ReadValue(native,"eventTargetCorrect","IggyValueGetBooleanRS")==1,"Sound event target/currentTarget and flags");
                 Check(native.Mp3.Opened>=2&&native.Mp3.OutputBytes>10000&&native.Mp3.Failures==0,"Mono/stereo MP3 decoded by callback");
-                AudioKey(native,76);AudioWait(native,120);
+                uint completion=ReadValue(native,"completed");AudioKey(native,76);AudioWait(native,120);
                 native.SetPaused(true);AudioWait(native,100);uint paused=AudioPosition(native);AudioWait(native,250);
                 Check(AudioPosition(native)==paused,"Pause freezes SoundChannel position");
+                Check(ReadValue(native,"completed")==completion,"Pause does not complete sound");
                 native.SetPaused(false);AudioWait(native,100);
                 Check(AudioPosition(native)>paused,"Resume continues sound");
                 AudioWait(native,200);Check(native.Mp3.Active==1,"MP3 remains active in its second iteration");
                 AudioWait(native,900);Check(native.Mp3.Active==0,"MP3 finishes after both iterations");
+                Check(ReadValue(native,"completed")==completion+1,"Loop dispatches one completion after both iterations");
+                completion=ReadValue(native,"completed");AudioKey(native,68);AudioWait(native,600);
+                Check(native.AudioChannels==1&&ReadValue(native,"completed")==completion,"loops=2 plays three iterations");
+                AudioWait(native,700);Check(ReadValue(native,"completed")==completion+1,"Triple loop completes once");
+                completion=ReadValue(native,"completed");AudioKey(native,79);AudioWait(native,800);
+                Check(ReadValue(native,"completed")==completion+2,"Concurrent channels each complete once");
+                completion=ReadValue(native,"completed");AudioKey(native,67);AudioWait(native,1600);
+                Check(ReadValue(native,"completed")==completion+3&&ReadValue(native,"chained")==2,"Completion listeners can start new sounds");
+                completion=ReadValue(native,"completed");uint conversions=ReadValue(native,"conversions");AudioKey(native,86);
+                Check(ReadValue(native,"conversions")==conversions+2,"Native valueOf argument conversions run once");
+                AudioWait(native,700);Check(ReadValue(native,"completed")==completion+1,"Fractional start time and SoundTransform complete");
+                AudioKey(native,52);AudioWait(native,80);AudioKey(native,82);
+                Check(native.Mp3.Active==1,"Stopping a completed channel cannot stop a reused voice slot");
+                AudioKey(native,80);AudioWait(native,100);
+                completion=ReadValue(native,"completed");
                 AudioKey(native,79);AudioWait(native,100);Check(native.Mp3.Active==2,"Concurrent MP3 channels");
                 native.Bind<Native.VoidPI>("IggyPlayerGarbageCollect")(native.Player,100);GC.Collect();GC.WaitForPendingFinalizers();
                 AudioWait(native,80);Check(native.Mp3.Failures==0,"Decoder survives native and managed GC");
                 AudioKey(native,80);AudioWait(native,100);Check(native.Mp3.Active==0,"SoundChannel.stop releases MP3 decoders");
+                AudioWait(native,600);Check(ReadValue(native,"completed")==completion&&native.TrackedSoundChannels==0,"stop does not dispatch completion");
                 AudioKey(native,79);AudioWait(native,80);AudioKey(native,83);AudioWait(native,100);
                 Check(native.Mp3.Active==0,"SoundMixer.stopAll releases MP3 decoders");
+                AudioWait(native,600);Check(ReadValue(native,"completed")==completion&&native.TrackedSoundChannels==0,"stopAll does not dispatch completion");
+                AudioKey(native,49);AudioWait(native,60);AudioKey(native,78);AudioWait(native,700);
+                Check(native.AudioChannels==0&&native.TrackedSoundChannels==0&&ReadValue(native,"completed")==completion,"Timeline stop cancels AS3 sound without completion");
+                AudioKey(native,52);AudioWait(native,80);
+                native.Bind<Native.VoidPI>("IggyPlayerGarbageCollect")(native.Player,100);GC.Collect();GC.WaitForPendingFinalizers();
+                AudioWait(native,700);Check(ReadValue(native,"completed")==completion+1,"Completion delivery and helper survive native/managed GC");
                 native.SetMuted(true);AudioKey(native,76);AudioWait(native,340);
                 Check(AudioRms(native.AudioSnapshot())<1,"Mute silences mixed output");
                 native.SetMuted(false);AudioWait(native,80);Check(AudioRms(native.AudioSnapshot())>100,"Unmute restores output");
                 AudioKey(native,79);AudioWait(native,80);native.Close();Check(native.Mp3.Active==0,"Close releases active decoders");
                 native.Open(fixture,500,200);AudioKey(native,52);AudioWait(native,100);Check(native.Mp3.Active==1,"Reopen restores audio");
-                native.Close();Check(native.Mp3.Active==0&&native.Mp3.Opened==native.Mp3.Closed,"No decoder handles remain");
+                native.Close();Check(native.Mp3.Active==0&&native.Mp3.Opened==native.Mp3.Closed&&native.TrackedSoundChannels==0,"No decoder or sound references remain");
             }
             Check(Hash(File.ReadAllBytes(fixture))==hash,"Audio fixture unchanged on disk");
-            log.Write("PASS: timeline and AS3 PCM8/PCM16/ADPCM/mono/stereo MP3, mixing, finite duration, loops, pause/resume, stop, mute, GC and reopen.");
+            log.Write("PASS: timeline and AS3 PCM8/PCM16/ADPCM/mono/stereo MP3, VBR/seek prefixes, Flash loop counts, SOUND_COMPLETE targets/flags, chained listeners, one-time coercion, stop/stopAll without completion, reused slots, pause/resume, mute, GC and reopen.");
         }
     }
 }

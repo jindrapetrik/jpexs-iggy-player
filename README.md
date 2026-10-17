@@ -94,10 +94,13 @@ or reloading a movie releases its channels. PNG export and noninteractive
 render modes remain silent. SoundStreamHead/Head2/Block, external sound
 loading, Nellymoser and Speex are not implemented.
 
-AS3 sound behavior otherwise follows the supplied DLL: Sound.play's loop
-argument counts total iterations (0 and 1 both play once), and natural
-completion does not dispatch SOUND_COMPLETE. These runtime differences
-from Flash Player are not emulated by the audio output bridge.
+The host corrects the supplied DLLs' AS3 loop counting: Sound.play(0, 0)
+plays once, Sound.play(0, 1) plays twice, and so on. Natural completion
+dispatches one SOUND_COMPLETE on the original SoundChannel during a movie
+tick, after its final iteration. Pause postpones delivery; stop(), stopAll(),
+timeline stop commands and closing the movie do not dispatch completion.
+Listeners can start or stop other sounds, and completed/stopped channels
+cannot accidentally stop a new sound that reuses their native voice slot.
 
 ## Hardware acceleration
 
@@ -151,8 +154,8 @@ Iggy file.
 ~~~
 
 The script uses the x64 C# compiler included with Windows .NET Framework.
-It compiles src/*.cs into IggyPlayer.exe and embeds runtime/sharedobject.abc
-and runtime/loader.abc. Keep these resources in version control. To build
+It compiles src/*.cs into IggyPlayer.exe and embeds runtime/sharedobject.abc,
+runtime/loader.abc and runtime/audio.abc. Keep these resources in version control. To build
 a separate executable while another is open:
 
 ~~~powershell
@@ -191,7 +194,9 @@ and measures both backends at 1600 x 1000.
 The optional -TestAudio suite produces short audible tones and requires a
 working Windows audio device and MP3 ACM codec. It verifies actual mixed
 PCM output and pitch for PCM8/PCM16/ADPCM and mono/stereo MP3, timeline/AS3
-triggers, looping, pause/resume, stop/stopAll, mute, GC and close/reopen.
+triggers, Flash loop counts, SOUND_COMPLETE targets/flags and chained listeners,
+single argument coercion, pause/resume, stop/stopAll and timeline cancellation,
+voice-slot reuse, mute, GC and close/reopen.
 
 Additional game-specific regression modes are available for a compatible
 external fixture. They depend on its timeline and AS3 object layout and

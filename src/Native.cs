@@ -51,6 +51,8 @@ namespace IggyViewer {
         readonly bool modernDll,correctLoaderInfo;
         LoaderInfoCompatibility loaderInfo;
         RuntimeCompatibility runtimeCompatibility;
+        SoundCompatibility soundCompatibility;
+        internal int TrackedSoundChannels {get{return soundCompatibility==null?0:soundCompatibility.Active;}}
         CursorCompatibility cursorCompatibility;
         internal bool CorrectZeroScale=true;
         internal int LastAdvancedFrames;
@@ -324,6 +326,7 @@ namespace IggyViewer {
             if(Muted)audioVolume(Player,0);
             if(correctLoaderInfo)loaderInfo=new LoaderInfoCompatibility(module,modernDll,Player,original.LongLength,log);
             if(correctLoaderInfo)runtimeCompatibility=new RuntimeCompatibility(module,modernDll,Player,log,CorrectZeroScale);
+            if(AudioEnabled&&runtimeScripts!=null&&runtimeScripts.NeedsAudio)soundCompatibility=new SoundCompatibility(this,module,modernDll,log);
             if(correctLoaderInfo)cursorCompatibility=new CursorCompatibility(this,module,modernDll,log);
             if(runtimeScripts!=null&&runtimeScripts.NeedsSharedObject)sharedObjectStorage=new SharedObjectStorage(this,StorageDirectory,log);
             wallClock.Restart();UpdateClock();initialize(Player);
@@ -464,13 +467,14 @@ namespace IggyViewer {
         void UpdateClock() {if(UseWallClock&&Player!=IntPtr.Zero)setTime(Player,1.0+wallClock.Elapsed.TotalSeconds);}
         internal void TickOnce() {UpdateClock();TickWithHitBounds();}
         void TickWithHitBounds() {
-            if(!mouseInside){tick(Player);return;}
+            if(!mouseInside){tick(Player);if(soundCompatibility!=null)soundCompatibility.AfterTick();return;}
             // Tick also recomputes hover for a stationary mouse. Apply the
             // same current morph bounds as for dispatched mouse events so an
             // invisible transition cannot steal hover on the next frame.
             Dictionary<IntPtr,float[]> saved=MorphHitBounds();
             try {tick(Player);}
             finally {RestoreMorphHitBounds(saved);}
+            if(soundCompatibility!=null)soundCompatibility.AfterTick();
         }
         public bool Frame(bool advance) {
             if (Player == IntPtr.Zero) return false;
@@ -584,7 +588,8 @@ namespace IggyViewer {
             pressedKeys.Clear();
             // Global TrueType glyphs can reference player-owned tessellation.
             // Flush while the player is alive, before releasing its memory.
-            if (Player != IntPtr.Zero) { flushInstalledFonts();destroy(Player); Player = IntPtr.Zero; }
+            if (Player != IntPtr.Zero) { if(soundCompatibility!=null)soundCompatibility.Detach();flushInstalledFonts();destroy(Player); Player = IntPtr.Zero; }
+            GC.KeepAlive(soundCompatibility);soundCompatibility=null;
             GC.KeepAlive(loaderInfo);loaderInfo=null;
             GC.KeepAlive(runtimeCompatibility);runtimeCompatibility=null;
             GC.KeepAlive(cursorCompatibility);cursorCompatibility=null;
