@@ -5,13 +5,14 @@ using System.Reflection;
 using System.Text;
 
 namespace IggyViewer {
-    // Append constant-pool entries and change selected QNames. Existing pool
-    // indices, instructions, branches, string literals and scripts stay intact.
-    internal sealed class RuntimeAbc {
+    // Rewrite selected names without changing existing pool indices or string
+    // literals. Constructor bootstrapping is handled in RuntimeBootstrap.cs.
+    internal sealed partial class RuntimeAbc {
         readonly byte[] bytes;
         readonly List<string> strings=new List<string>{""};
         readonly List<int> namespaces=new List<int>{0};
         readonly List<byte> namespaceKinds=new List<byte>{0};
+        readonly List<int[]> namespaceSets=new List<int[]>{new int[0]};
         sealed class Name {public int Kind,Ns,Text;public byte[] Raw;}
         readonly List<Name> names=new List<Name>{null};
         readonly int stringsStart,setsStart,setsEnd,tail;
@@ -19,24 +20,33 @@ namespace IggyViewer {
         public readonly HashSet<string> References=new HashSet<string>(StringComparer.Ordinal);
         public readonly HashSet<string> Definitions=new HashSet<string>(StringComparer.Ordinal);
         public readonly HashSet<string> Classes=new HashSet<string>(StringComparer.Ordinal);
+        readonly Dictionary<string,int> constructors=new Dictionary<string,int>(StringComparer.Ordinal);
+        readonly int bodiesStart;
+        readonly List<Tuple<int,int,int>> traitNames=new List<Tuple<int,int,int>>();
+        readonly HashSet<int> scriptInitializers=new HashSet<int>();
+        readonly Dictionary<int,HashSet<int>> methodMembers=new Dictionary<int,HashSet<int>>();
+        HashSet<int> currentMembers;
         int Byte(){if(cursor>=bytes.Length)throw new InvalidDataException("Truncated runtime ABC.");return bytes[cursor++];}
         uint Var(){uint v=0;for(int i=0;i<5;i++){int b=Byte();v|=(uint)(b&127)<<(i*7);if((b&128)==0)return v;}throw new InvalidDataException("Invalid ABC integer.");}
         int Count(){uint n=Var();if(n>1000000)throw new InvalidDataException("ABC count limit exceeded.");return (int)n;}
         void Skip(int n){if(n<0||n>bytes.Length-cursor)throw new InvalidDataException("Truncated ABC data.");cursor+=n;}
         string Qualified(int index) {
             if(index<=0||index>=names.Count)return null;
-            Name n=names[index];if(n.Kind!=7&&n.Kind!=13)return null;
+            Name n=names[index];if(n.Kind!=7&&n.Kind!=13&&n.Kind!=9&&n.Kind!=14)return null;
+            if(n.Ns==0)return null;
             if(n.Ns<=0||n.Ns>=namespaces.Count||n.Text<0||n.Text>=strings.Count)throw new InvalidDataException("Invalid ABC QName.");
             if(namespaceKinds[n.Ns]!=0x16&&namespaceKinds[n.Ns]!=0x17)return null;
             return strings[namespaces[n.Ns]]+"::"+strings[n.Text];
         }
         void Traits(bool global=false) {
             for(int i=Count();i>0;i--) {
-                int name=Count(),kind=Byte();
+                int position=cursor,name=Count(),kind=Byte();traitNames.Add(Tuple.Create(position,name,kind&15));
+                if(currentMembers!=null)currentMembers.Add(name);
                 if(global){string qualified=Qualified(name);if(qualified!=null)Definitions.Add(qualified);}
                 switch(kind&15) {
                     case 0:case 6:Var();Var();if(Var()!=0)Byte();break;
-                    case 1:case 2:case 3:case 4:case 5:Var();Var();break;
+                    case 1:case 2:case 3:case 5:Var();int method=Count();if(currentMembers!=null)methodMembers[method]=currentMembers;break;
+                    case 4:Var();Var();break;
                     default:throw new InvalidDataException("Unknown ABC trait.");
                 }
                 if((kind&64)!=0)for(int n=Count();n>0;n--)Var();
@@ -48,14 +58,20 @@ namespace IggyViewer {
             Skip(Math.Max(0,Count()-1)*8);stringsStart=cursor;
             for(int n=Count()-1;n>0;n--){int size=Count();if(size>bytes.Length-cursor)throw new InvalidDataException("Truncated ABC string.");strings.Add(new UTF8Encoding(false,true).GetString(bytes,cursor,size));Skip(size);}
             for(int n=Count()-1;n>0;n--){namespaceKinds.Add((byte)Byte());int text=Count();if(text>=strings.Count)throw new InvalidDataException("Invalid ABC namespace.");namespaces.Add(text);}
-            setsStart=cursor;for(int n=Count()-1;n>0;n--)for(int m=Count();m>0;m--)Var();setsEnd=cursor;
+            setsStart=cursor;
+            for(int n=Count()-1;n>0;n--) {int[] set=new int[Count()];for(int i=0;i<set.Length;i++)set[i]=Count();namespaceSets.Add(set);}
+            setsEnd=cursor;
             for(int n=Count()-1;n>0;n--) {
                 int start=cursor;Name name=new Name {Kind=Byte()};
                 switch(name.Kind) {
                     case 7:case 13:name.Ns=Count();name.Text=Count();break;
                     case 15:case 16:case 27:case 28:Var();break;
                     case 17:case 18:break;
-                    case 9:case 14:Var();Var();break;
+                    case 9:case 14:
+                        name.Text=Count();int set=Count();
+                        if(set<=0||set>=namespaceSets.Count)throw new InvalidDataException("Invalid ABC namespace set.");
+                        if(namespaceSets[set].Length==1)name.Ns=namespaceSets[set][0];
+                        break;
                     case 29:Var();for(int k=Count();k>0;k--)Var();break;
                     default:throw new InvalidDataException("Unknown ABC multiname.");
                 }
@@ -70,22 +86,68 @@ namespace IggyViewer {
             }
             for(int n=Count();n>0;n--){Var();int pairs=Count();for(int i=0;i<pairs*2;i++)Var();}
             int classes=Count();
+            List<HashSet<int>> members=new List<HashSet<int>>();
             for(int n=classes;n>0;n--) {
+                currentMembers=new HashSet<int>();members.Add(currentMembers);
                 string q=Qualified(Count());if(q!=null){Definitions.Add(q);Classes.Add(q);}Var();int flags=Byte();if((flags&8)!=0)Var();
-                for(int i=Count();i>0;i--)Var();Var();Traits();
+                for(int i=Count();i>0;i--)Var();int initializer=Count();methodMembers[initializer]=currentMembers;if(q!=null)constructors[q]=initializer;Traits();
             }
-            for(int n=classes;n>0;n--){Var();Traits();}
-            for(int n=Count();n>0;n--){Var();Traits(true);}
+            for(int i=0;i<classes;i++){currentMembers=members[i];int initializer=Count();methodMembers[initializer]=currentMembers;Traits();}
+            currentMembers=null;
+            for(int n=Count();n>0;n--){scriptInitializers.Add(Count());Traits(true);}
+            bodiesStart=cursor;
         }
         static void WriteVar(BinaryWriter w,int n){uint value=(uint)n;while(value>=128){w.Write((byte)(value|128));value>>=7;}w.Write((byte)value);}
-        public byte[] Redirect(bool loader,bool fileList) {
+        internal byte[] RenameClasses(Dictionary<string,string> classes) {
+            // The DLL shares script globals by qualified name. Give loaded
+            // classes domain-specific packages while retaining public aliases.
+            Dictionary<int,string> changed=new Dictionary<int,string>();
+            for(int i=1;i<names.Count;i++) {
+                Name name=names[i];string qualified=Qualified(i),replacement;
+                if(qualified!=null&&classes.TryGetValue(qualified,out replacement))changed[i]=replacement;
+                // Multi-namespace property lookups can share a class's text
+                // name (object.Main); they must retain their public lookup.
+            }
+            if(changed.Count==0)return bytes;
+            List<string> texts=new List<string>(strings);List<int> packages=new List<int>();
+            Dictionary<int,int> textIndices=new Dictionary<int,int>(),namespaceIndices=new Dictionary<int,int>();
+            Dictionary<int,int> writes=new Dictionary<int,int>();int alias=0;
+            foreach(KeyValuePair<int,string> change in changed) {
+                int split=change.Value.LastIndexOf("::",StringComparison.Ordinal);
+                texts.Add(change.Value.Substring(0,split));packages.Add(texts.Count-1);namespaceIndices[change.Key]=namespaces.Count+packages.Count-1;
+                texts.Add(change.Value.Substring(split+2));textIndices[change.Key]=texts.Count-1;
+                writes[change.Key]=names.Count+alias;alias++;
+            }
+            using(MemoryStream output=new MemoryStream())using(BinaryWriter w=new BinaryWriter(output)) {
+                w.Write(bytes,0,stringsStart);WriteVar(w,texts.Count);
+                for(int i=1;i<texts.Count;i++){byte[] text=Encoding.UTF8.GetBytes(texts[i]);WriteVar(w,text.Length);w.Write(text);}
+                WriteVar(w,namespaces.Count+packages.Count);
+                for(int i=1;i<namespaces.Count;i++){w.Write(namespaceKinds[i]);WriteVar(w,namespaces[i]);}
+                foreach(int package in packages){w.Write((byte)0x16);WriteVar(w,package);}
+                w.Write(bytes,setsStart,setsEnd-setsStart);WriteVar(w,names.Count+changed.Count);
+                for(int i=1;i<names.Count;i++) {
+                    int text;if(textIndices.TryGetValue(i,out text)){w.Write((byte)(names[i].Kind==13||names[i].Kind==14?13:7));WriteVar(w,namespaceIndices[i]);WriteVar(w,text);}
+                    else w.Write(names[i].Raw);
+                }
+                foreach(KeyValuePair<int,string> change in changed) {
+                    w.Write(names[change.Key].Raw);
+                }
+                RewriteClassBodies(w,writes);return output.ToArray();
+            }
+        }
+        public byte[] Redirect(bool loader,bool fileList,bool domainsOnly=false) {
             if(!loader&&!fileList)return bytes;
             Dictionary<int,string> changes=new Dictionary<int,string>();
             for(int i=1;i<names.Count;i++) {
                 string q=Qualified(i);
-                if(loader&&q=="flash.display::Loader")changes.Add(i,"HostLoader");
-                if(loader&&q=="flash.net::URLRequest")changes.Add(i,"HostURLRequest");
-                if(loader&&q=="flash.events::IOErrorEvent")changes.Add(i,"HostIOErrorEvent");
+                if(loader&&!domainsOnly&&q=="flash.display::Loader")changes.Add(i,"HostLoader");
+                if(loader&&!domainsOnly&&q=="flash.net::URLRequest")changes.Add(i,"HostURLRequest");
+                if(loader&&!domainsOnly&&q=="flash.events::IOErrorEvent")changes.Add(i,"HostIOErrorEvent");
+                if(loader&&q=="flash.system::ApplicationDomain")changes.Add(i,"HostApplicationDomain");
+                if(loader&&q=="flash.system::LoaderContext")changes.Add(i,"HostLoaderContext");
+                if(loader&&!domainsOnly&&q=="flash.utils::getDefinitionByName")changes.Add(i,"HostGetDefinitionByName");
+                if(loader&&!domainsOnly&&q=="flash.utils::getQualifiedClassName")changes.Add(i,"HostGetQualifiedClassName");
+                if(loader&&!domainsOnly&&q=="flash.utils::getQualifiedSuperclassName")changes.Add(i,"HostGetQualifiedSuperclassName");
                 if(fileList&&q=="flash.net::FileReferenceList")changes.Add(i,"HostFileReferenceList");
             }
             if(changes.Count==0)return bytes;
@@ -101,7 +163,7 @@ namespace IggyViewer {
                 w.Write((byte)0x16);WriteVar(w,packageText);
                 w.Write(bytes,setsStart,setsEnd-setsStart);WriteVar(w,names.Count);
                 for(int i=1;i<names.Count;i++) {
-                    int text;if(nameText.TryGetValue(i,out text)){w.Write((byte)names[i].Kind);WriteVar(w,namespaces.Count);WriteVar(w,text);}
+                    int text;if(nameText.TryGetValue(i,out text)){w.Write((byte)(names[i].Kind==9?7:names[i].Kind==14?13:names[i].Kind));WriteVar(w,namespaces.Count);WriteVar(w,text);}
                     else w.Write(names[i].Raw);
                 }
                 w.Write(bytes,tail,bytes.Length-tail);return output.ToArray();
@@ -110,6 +172,8 @@ namespace IggyViewer {
     }
 
     internal sealed class RuntimeScriptPlan {
+        internal readonly HashSet<string> Classes=new HashSet<string>(StringComparer.Ordinal);
+        internal readonly HashSet<string> ClassReferences=new HashSet<string>(StringComparer.Ordinal);
         readonly bool shared,loader,fileList,audio,timers;
         internal bool NeedsSharedObject {get{return shared;}}
         internal bool NeedsAudio {get{return audio||loader;}}
@@ -117,10 +181,13 @@ namespace IggyViewer {
         public RuntimeScriptPlan(IEnumerable<byte[]> sources) {
             HashSet<string> references=new HashSet<string>(StringComparer.Ordinal),definitions=new HashSet<string>(StringComparer.Ordinal);
             foreach(byte[] source in sources)foreach(byte[] abc in Container.ReadAbcs(source)) {
-                RuntimeAbc parsed=new RuntimeAbc(abc);references.UnionWith(parsed.References);definitions.UnionWith(parsed.Definitions);
+                RuntimeAbc parsed=new RuntimeAbc(abc);references.UnionWith(parsed.References);definitions.UnionWith(parsed.Definitions);Classes.UnionWith(parsed.Classes);ClassReferences.UnionWith(parsed.References);
             }
             shared=references.Contains("flash.net::SharedObject")&&!definitions.Contains("flash.net::SharedObject");
             loader=references.Contains("flash.display::Loader")&&!definitions.Contains("flash.display::Loader")&&!definitions.Contains("flash.net::URLRequest")&&!definitions.Contains("flash.events::IOErrorEvent");
+            loader|=references.Contains("flash.system::ApplicationDomain")||references.Contains("flash.system::LoaderContext");
+            loader|=references.Contains("::applicationDomain");
+            loader|=references.Contains("flash.utils::getDefinitionByName");
             foreach(string timer in new string[]{"setInterval","setTimeout","clearInterval","clearTimeout"})if(references.Contains("flash.utils::"+timer)&&!definitions.Contains("flash.utils::"+timer))timers=true;
             shared|=loader&&!definitions.Contains("flash.net::SharedObject");
             fileList=references.Contains("flash.net::FileReferenceList")&&!definitions.Contains("flash.net::FileReferenceList");
@@ -130,6 +197,8 @@ namespace IggyViewer {
                 throw new InvalidDataException("Movie conflicts with the Iggy runtime compatibility namespace.");
             if(shared&&definitions.Contains("com.jpexs.iggy.runtime::HostCodec"))throw new InvalidDataException("Movie conflicts with the SharedObject codec namespace.");
             if(definitions.Contains("com.jpexs.iggy.runtime::HostTimers")||definitions.Contains("com.jpexs.iggy.runtime::HostTimerTask"))throw new InvalidDataException("Movie conflicts with the host timer namespace.");
+            foreach(string name in new string[]{"flash.system::ApplicationDomain","flash.system::LoaderContext","com.jpexs.iggy.runtime::HostDefinitionRequest","com.jpexs.iggy.runtime::HostDomainBinding","com.jpexs.iggy.runtime::HostDomainFactory","com.jpexs.iggy.runtime::HostDomainNames","com.jpexs.iggy.runtime::HostApplicationDomain","com.jpexs.iggy.runtime::HostLoaderContext","com.jpexs.iggy.runtime::HostGetDefinitionByName","com.jpexs.iggy.runtime::HostGetQualifiedClassName","com.jpexs.iggy.runtime::HostGetQualifiedSuperclassName"})
+                if(definitions.Contains(name))throw new InvalidDataException("Movie conflicts with the host application domain namespace.");
         }
         static byte[] Resource(string name) {
             using(Stream stream=Assembly.GetExecutingAssembly().GetManifestResourceStream(name)) {
@@ -142,12 +211,15 @@ namespace IggyViewer {
             List<byte[]> abcs=new List<byte[]>();
             if(main) {
                 if(shared)abcs.Add(Resource("IggyViewer.SharedObject.abc"));
-                if(loader||fileList||timers)abcs.Add(Resource("IggyViewer.Loader.abc"));
+                if(loader||fileList||timers)abcs.Add(new RuntimeAbc(Resource("IggyViewer.Loader.abc")).Redirect(true,false,true));
                 if(audio||loader)abcs.Add(Resource("IggyViewer.Audio.abc"));
             }
             bool changed=abcs.Count!=0;
+            string document=main&&(loader||timers)?Container.DocumentClass(source):null;
             foreach(byte[] abc in Container.ReadAbcs(source)) {
-                byte[] rewritten=new RuntimeAbc(abc).Redirect(loader,fileList);abcs.Add(rewritten);changed|=!Object.ReferenceEquals(abc,rewritten);
+                byte[] rewritten=new RuntimeAbc(abc).Redirect(loader,fileList);
+                if(document!=null)rewritten=new RuntimeAbc(rewritten).BootstrapDomain(document);
+                abcs.Add(rewritten);changed|=!Object.ReferenceEquals(abc,rewritten);
             }
             return changed?Container.ReplaceAbcs(source,abcs,log):source;
         }

@@ -1,0 +1,14 @@
+package com.jpexs.iggy.runtime {
+    public class HostDomainNames {
+        public static function original(name:String):String {
+            if (name == "com.jpexs.iggy.runtime::HostApplicationDomain") return "flash.system::ApplicationDomain";
+            if (name == "com.jpexs.iggy.runtime::HostLoaderContext") return "flash.system::LoaderContext";
+            var prefix:String = "com.jpexs.iggy.domain.d";
+            if (name.indexOf(prefix) != 0) return name;
+            var dot:int = name.indexOf(".", prefix.length);
+            var separator:int = name.indexOf("::", prefix.length);
+            if (separator < 0) return name;
+            return dot < 0 || separator < dot ? name.substr(separator + 2) : name.substr(dot + 1);
+        }
+    }
+}

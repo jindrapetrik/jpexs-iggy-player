@@ -12,9 +12,10 @@ namespace IggyViewer {
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr BoundMethod(IntPtr vm,IntPtr receiver,IntPtr function);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate void ReferenceLimit(IntPtr player,int count);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate byte BooleanValue(IntPtr value);
-        internal sealed class Scope {internal Scope Parent;internal bool Stopped;}
+        internal sealed class Scope {internal Scope Parent;internal bool Stopped;internal int Domain=1;}
         sealed class Owner {internal IntPtr Value;internal Scope Scope;internal bool Timer;}
-        sealed class Method {internal IntPtr Value;internal Builtin Original;internal Scope Scope;internal bool Registered,Constructor;}
+        sealed class Method {internal IntPtr Value;internal Builtin Original;internal Scope Scope;internal bool Registered,Constructor;internal int Domain=-1;}
+        int patchDomain=-1;
         sealed class Listener {internal IntPtr Target,Function,Bound,Type;internal Scope Scope;internal bool Capture;}
         readonly Native native;
         readonly IntPtr vm,module,invokePointer;
@@ -78,6 +79,8 @@ namespace IggyViewer {
             IntPtr result=nativeReference(player,value,weak);if(result!=IntPtr.Zero)references++;return result;
         }
         void free(IntPtr player,IntPtr value) {freeReference(player,value);references--;}
+        internal IntPtr HostReference(IntPtr value,int weak) {return reference(native.Player,value,weak);}
+        internal void FreeHostReference(IntPtr value) {free(native.Player,value);}
         internal bool TryOwner(IntPtr value,out Scope scope) {
             Owner indexed;
             if(ownerIndex.TryGetValue(value,out indexed)&&Value(indexed.Value)==value){scope=indexed.Scope;return true;}
@@ -107,20 +110,23 @@ namespace IggyViewer {
             }
             throw new InvalidDataException("Missing activity method: "+name);
         }
-        internal void PatchClass(IntPtr metadata) {
-            foreach(int offset in new int[]{72,80}) {
-                IntPtr traits=Marshal.ReadIntPtr(metadata,offset);if(traits==IntPtr.Zero)continue;
-                PatchFunction(Marshal.ReadIntPtr(traits,8),false,true);
-                foreach(int table in new int[]{64,72,80}) {
-                    int count=(ushort)Marshal.ReadInt16(traits,table==64?22:table==72?26:24);
-                    if(count>10000)throw new InvalidDataException("Invalid script activity method table.");
-                    IntPtr entries=Marshal.ReadIntPtr(traits,table);
-                    for(int i=0;i<count;i++) {
-                        IntPtr function=Marshal.ReadIntPtr(entries,8*i);
-                        PatchFunction(table==64?function:IntPtr.Add(function,1),false);
+        internal void PatchClass(IntPtr metadata,int domain=-1) {
+            int previous=patchDomain;patchDomain=domain;
+            try {
+                foreach(int offset in new int[]{72,80}) {
+                    IntPtr traits=Marshal.ReadIntPtr(metadata,offset);if(traits==IntPtr.Zero)continue;
+                    PatchFunction(Marshal.ReadIntPtr(traits,8),false,true);
+                    foreach(int table in new int[]{64,72,80}) {
+                        int count=(ushort)Marshal.ReadInt16(traits,table==64?22:table==72?26:24);
+                        if(count>10000)throw new InvalidDataException("Invalid script activity method table.");
+                        IntPtr entries=Marshal.ReadIntPtr(traits,table);
+                        for(int i=0;i<count;i++) {
+                            IntPtr function=Marshal.ReadIntPtr(entries,8*i);
+                            PatchFunction(table==64?function:IntPtr.Add(function,1),false);
+                        }
                     }
                 }
-            }
+            } finally {patchDomain=previous;}
         }
         void PatchFunction(IntPtr value,bool registered,bool constructor=false) {
             if(!Heap(value))return;
@@ -134,7 +140,7 @@ namespace IggyViewer {
             }
             long offset=callback.ToInt64()-module.ToInt64();
             if(offset!=(modern?0x79d70:0x7d5a0)&&offset!=(modern?0x79e10:0x85b70))return;
-            Method added=new Method {Value=reference(native.Player,value,1),Original=Function<Builtin>(callback),Scope=Current,Registered=registered,Constructor=constructor};
+            Method added=new Method {Value=reference(native.Player,value,1),Original=Function<Builtin>(callback),Scope=Current,Registered=registered,Constructor=constructor,Domain=patchDomain};
             methods.Add(added);methodIndex[function]=added;Marshal.WriteIntPtr(function,16,invokePointer);
         }
         IntPtr Invoke(IntPtr context) {
@@ -143,9 +149,12 @@ namespace IggyViewer {
                 method=null;foreach(Method candidate in methods)if(Value(candidate.Value)==IntPtr.Add(function,1)){method=candidate;methodIndex[function]=candidate;break;}
             }
             if(method==null)throw new InvalidOperationException("Unknown script activity callback.");
-            Scope previous=Current,owner;IntPtr receiver=Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,24));
+            Scope previous=Current,owner;int previousDomain=native.ExecutionDomain;
+            if(method.Domain>=0)native.ExecutionDomain=method.Domain;
+            IntPtr receiver=Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,24));
             if(!method.Constructor&&TryOwner(receiver,out owner))Current=owner;
             else if(method.Registered)Current=method.Scope;
+            if(method.Domain<0&&Current!=null)native.ExecutionDomain=Current.Domain;
             // Unregistered class methods inherit their caller's loaded instance.
             if(Heap(receiver)&&Marshal.ReadByte(IntPtr.Subtract(receiver,1))!=38)Track(receiver,parent:method.Registered);
             try {
@@ -153,7 +162,7 @@ namespace IggyViewer {
                 // listener unloads this instance during the same native tick.
                 if(Current!=null&&Current.Stopped&&method.Registered){Marshal.WriteIntPtr(Marshal.ReadIntPtr(context,8),IntPtr.Zero);return IntPtr.Zero;}
                 return method.Original(context);
-            }finally {Current=previous;}
+            }finally {Current=previous;native.ExecutionDomain=previousDomain;}
         }
         IntPtr AddListener(IntPtr context) {
             if(Marshal.ReadInt32(context,16)<2)return add(context);

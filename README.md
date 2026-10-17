@@ -174,10 +174,23 @@ Local image limits are 32 MiB encoded data per file, 3840 pixels per dimension,
 Two worker threads decode files; VM access and event delivery stay on the
 movie thread. IGGY files are limited to 256 MiB each. The native runtime permits
 32 registered libraries, including imports; loaded definitions remain cached
-until the main movie closes. Repeated loads of an unchanged file reuse its
-classes and static fields. Same-named parent/child classes have separate
-definitions for ordinary lexical references, but LoaderContext/ApplicationDomain
-and reflective class lookup are not fully implemented. Network transfers,
+until the main movie closes. LoaderContext.applicationDomain selects a domain;
+omitting it creates a new child of the calling code's domain. Repeated loads of
+an unchanged file into the same explicit domain reuse classes and static fields.
+Separate domains keep those classes and fields independent. ApplicationDomain
+provides currentDomain, parentDomain, hasDefinition and getDefinition for public
+classes, with parent lookup before local lookup. LoaderInfo.applicationDomain
+and LoaderContext.parameters are available to child constructors. Setting
+allowCodeImport=false rejects IGGY movies before linking while allowing images.
+getDefinitionByName uses the calling code's domain; getQualifiedClassName and
+getQualifiedSuperclassName report original names rather than internal aliases.
+Same-named parent/child classes keep separate lexical definitions; complete
+parent-first lexical binding, redefinitions from different files and isolation of
+cached imported ABCs are not implemented. Reflection of script functions/variables
+and domainMemory are unavailable. getQualifiedDefinitionNames currently returns
+an Array of local class names, since this DLL does not provide Vector.
+Non-null securityDomain and requestedContentParent are rejected explicitly.
+checkPolicyFile has no effect for local files. Network transfers,
 loadBytes() and GIF images are not implemented. The supplied DLL's other stubbed
 BitmapData drawing/pixel-editing methods remain unsupported.
 LoaderInfo counters report the original size of the synchronously loaded
@@ -260,6 +273,7 @@ IggyPlayer.exe --self-test-loaderinfo test-data/loaderinfo.iggy output-directory
 IggyPlayer.exe --self-test-runtime test-data/runtime.iggy output-directory
 IggyPlayer.exe --self-test-loader test-data/loader.iggy output-directory
 IggyPlayer.exe --self-test-movie-loader test-data/movie-loader.iggy output-directory
+IggyPlayer.exe --self-test-domains test-data/domains.iggy output-directory
 IggyPlayer.exe --self-test-unload test-data/movie-loader.iggy output-directory
 IggyPlayer.exe --self-test-unload-audio test-data/movie-loader.iggy output-directory
 IggyPlayer.exe --self-test-audio test-data/audio.iggy output-directory

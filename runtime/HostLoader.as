@@ -9,6 +9,7 @@ package com.jpexs.iggy.runtime {
     import flash.events.TimerEvent;
     import flash.external.ExternalInterface;
     import flash.system.LoaderContext;
+    import flash.system.ApplicationDomain;
     import flash.utils.Timer;
     public class HostLoader extends Sprite {
         private var info:HostLoaderInfo;
@@ -17,11 +18,14 @@ package com.jpexs.iggy.runtime {
         private var generation:uint;
         private var opened:Boolean;
         private var loaded:DisplayObject;
+        private var allowCode:Boolean;
         public function HostLoader() {
             super(); info = new HostLoaderInfo(this);
         }
         public function load(request:HostURLRequest, context:LoaderContext = null):void {
             if (request == null) throw new TypeError("Loader request is null");
+            if (context != null && context.securityDomain != null) throw new SecurityError("SecurityDomain is unavailable for local loading");
+            if (context != null && context.requestedContentParent != null) throw new ArgumentError("requestedContentParent is unavailable for local loading");
             var serial:uint = generation + 1;
             unload();
             if (serial != generation) return;
@@ -30,8 +34,11 @@ package com.jpexs.iggy.runtime {
             info.imageWidth = 0;
             info.imageHeight = 0;
             info.mimeType = null;
+            info.requestDomain = context != null && context.applicationDomain != null ? context.applicationDomain : new ApplicationDomain(ApplicationDomain.currentDomain);
+            info.requestParameters = context == null || context.parameters == null ? {} : context.parameters;
+            allowCode = context == null || context.allowCodeImport;
             opened = false;
-            token = String(ExternalInterface.call("__iggy_image_start", request.url, info.loaderURL));
+            token = String(ExternalInterface.call("__iggy_image_start", request.url, info.loaderURL, String(info.requestDomain.__iggyId), allowCode ? "yes" : "no"));
             pending = new Timer(10);
             pending.addEventListener(TimerEvent.TIMER, poll);
             pending.start();

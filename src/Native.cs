@@ -624,6 +624,7 @@ namespace IggyViewer {
             runtimeScripts=null;
             for(int i=libraries.Count-1;i>=0;i--)libraryDestroy(libraries[i]);
             libraries.Clear();loadedUrls.Clear();
+            ReleaseMovieSymbolNames();
             RemoveDeviceFonts();
             if (Renderer != null) Renderer.ClearResources();
         }

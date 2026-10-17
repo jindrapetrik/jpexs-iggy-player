@@ -101,6 +101,28 @@ PCM16, SWF ADPCM and mono/stereo MP3. They exercise native timeline sounds,
 AS3 Sound.play(), loops, concurrent channels, pause, mute, stop and resource
 lifetime. See [audio/README.md](audio/README.md) for regeneration and controls.
 
+## Loader application domains
+
+domains.swf/domains.iggy and the movies under domains/ test LoaderContext with
+default child domains, a shared explicit domain, the current domain and a domain
+with only the system parent. The same child class has independent static fields
+in separate domains and shared fields when its file is reused in one domain.
+The fixture checks class lookup with both name separators, missing-definition
+ReferenceError, LoaderInfo and parameters in constructors, timer callback domains,
+public class names, GC/reopen and allowCodeImport=false for movies versus images.
+info-only.iggy verifies the main LoaderInfo getter before any explicit domain
+reference. The document constructor keeps its original try/catch behavior after
+the in-memory bootstrap, and dynamic property names are not renamed as classes.
+Run it with --self-test-domains test-data/domains.iggy test-output/domains.
+
+Regenerate with a compatible FFDec library and its dependencies:
+
+~~~powershell
+$classpath = 'PATH_TO_FFDEC_JAR;PATH_TO_FFDEC_LIB/*'
+javac -encoding UTF-8 -cp $classpath tools/CreateDomainFixture.java
+java -cp "tools;$classpath" CreateDomainFixture test-data/domains
+~~~
+
 ## Filters
 
 The filters.swf and filters.iggy fixtures exercise translucent color

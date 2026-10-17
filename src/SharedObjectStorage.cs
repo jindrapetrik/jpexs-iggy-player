@@ -42,7 +42,8 @@ namespace IggyViewer {
             try {
                 if(player!=native.Player)throw new InvalidDataException("Wrong SharedObject movie owner.");
                 if(images!=null&&name.StartsWith("__iggy_image_",StringComparison.Ordinal)) {
-                    string result=images.Call(name,Argument(call,0),Marshal.ReadInt32(call,16)>1?Argument(call,1):null);
+                    int count=Marshal.ReadInt32(call,16);
+                    string result=images.Call(name,Argument(call,0),count>1?Argument(call,1):null,count>2?Argument(call,2):null,count>3?Argument(call,3):null);
                     IntPtr buffer=Marshal.StringToHGlobalUni(result);
                     try {setString(resultPath(player),IntPtr.Zero,IntPtr.Zero,buffer,result.Length);}finally {Marshal.FreeHGlobal(buffer);}
                     return 1;
