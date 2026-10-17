@@ -184,10 +184,21 @@ and LoaderContext.parameters are available to child constructors. Setting
 allowCodeImport=false rejects IGGY movies before linking while allowing images.
 getDefinitionByName uses the calling code's domain; getQualifiedClassName and
 getQualifiedSuperclassName report original names rather than internal aliases.
-Same-named parent/child classes keep separate lexical definitions; complete
-parent-first lexical binding, redefinitions from different files and isolation of
-cached imported ABCs are not implemented. Reflection of script functions/variables
-and domainMemory are unavailable. getQualifiedDefinitionNames currently returns
+Class references reuse definitions from the parent domain before local ones.
+Once a class is loaded, another file in the same domain cannot replace it or
+reset its static fields. Imported libraries, including nested imports, are cached
+by domain, resolved file and contents. Identical import URLs in different folders
+can resolve to different libraries. Their AS3 classes, static initializers and
+timeline class-name placements use the target domain; already-bound resource
+classes retain their original definitions. This import isolation applies to
+movies loaded through Loader. Use a domain with the system parent
+to load a movie whose document class has the same name as the parent's class.
+Reflection of script functions/variables and domainMemory are unavailable.
+Static fields initialized from host compatibility APIs in libraries imported at
+startup are not yet reliable. In particular, storing ApplicationDomain.currentDomain
+in such a static field can produce null.
+Initializers in dynamically loaded libraries run in the selected domain.
+getQualifiedDefinitionNames currently returns
 an Array of local class names, since this DLL does not provide Vector.
 Non-null securityDomain and requestedContentParent are rejected explicitly.
 checkPolicyFile has no effect for local files. Network transfers,

@@ -93,18 +93,12 @@ namespace IggyViewer {
             if(compilerLifetime==null)throw new InvalidOperationException("The movie linker was not retained before startup.");
             List<byte[]> sources=new List<byte[]> {original};
             CollectRuntimeSources(file,original,sources,new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-            RuntimeScriptPlan plan=new RuntimeScriptPlan(sources),parentPlan=runtimeScripts;
-            try {runtimeScripts=plan;LoadImports(file,original,new HashSet<string>(StringComparer.OrdinalIgnoreCase));}
-            finally {runtimeScripts=parentPlan;}
-            Dictionary<string,string> renamed=new Dictionary<string,string>(StringComparer.Ordinal);
-            foreach(byte[] abc in Container.ReadAbcs(original))foreach(string definition in new RuntimeAbc(abc).Classes) {
-                int split=definition.LastIndexOf("::",StringComparison.Ordinal);
-                string package=definition.Substring(0,split);
-                renamed[definition]="com.jpexs.iggy.domain.d"+domain+(package.Length==0?"":"."+package)+"::"+definition.Substring(split+2);
-            }
-            byte[] prepared=plan.Apply(original,false,log);List<byte[]> domainAbcs=new List<byte[]>();
-            foreach(byte[] abc in Container.ReadAbcs(prepared))domainAbcs.Add(new RuntimeAbc(abc).RenameClasses(renamed));
-            byte[] bytes=Container.Prepare(Container.ReplaceAbcs(prepared,domainAbcs,log),log),name=Encoding.UTF8.GetBytes("__iggy_dynamic_"+Guid.NewGuid().ToString("N")+".iggy\0");
+            RuntimeScriptPlan plan=new RuntimeScriptPlan(sources);
+            Dictionary<string,string> renamed=DomainClassNames(domain,sources);
+            List<DomainLibrary> imports=new List<DomainLibrary>();
+            Dictionary<string,string> importUrls=RegisterDomainImports(file,original,domain,plan,renamed,imports,new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            if(libraries.Count>=32)throw new IOException("The native runtime's 32-library limit has been reached.");
+            byte[] bytes=PrepareDomainMovie(original,plan,renamed,importUrls),name=Encoding.UTF8.GetBytes("__iggy_dynamic_"+Guid.NewGuid().ToString("N")+".iggy\0");
             byte* options=stackalloc byte[80];for(int i=0;i<80;i++)options[i]=0;
             int id;fixed(byte* p=bytes)fixed(byte* n=name)id=createLibrary((IntPtr)n,(IntPtr)p,(uint)bytes.Length,(IntPtr)options);
             if(id<0||id>31)throw new InvalidDataException("The DLL rejected the loaded movie.");
@@ -114,34 +108,22 @@ namespace IggyViewer {
             if(frames<1||frames>65535||depth<0||depth>65535)throw new InvalidDataException("Loaded movie exceeds native sprite frame/depth limits.");
             NormalizeTimelineMatrices(generic);NormalizeEmptyStyleTables(generic);NormalizeAudio(generic);InstallTextures(generic,file);
             LoadedMovie movie=new LoadedMovie {FileName=Path.GetFullPath(file),Library=id,Domain=domain,ClassNames=renamed,Width=Marshal.ReadInt32(generic,16),Height=Marshal.ReadInt32(generic,20)};
-            // The DLL also resolves resource classes through the native symbol
-            // table when constructing Sound/Bitmap/font instances. Keep those
-            // names consistent with the isolated ABC definitions.
-            int symbolCount=Marshal.ReadInt32(generic,560);IntPtr symbolTable=Marshal.ReadIntPtr(generic,552);
-            if(symbolCount<0||symbolCount>65536)throw new InvalidDataException("Invalid domain symbol table.");
-            for(int i=0;i<symbolCount;i++) {
-                IntPtr symbol=IntPtr.Add(symbolTable,24*i);string originalName=Marshal.PtrToStringUni(Marshal.ReadIntPtr(symbol,8)),replacement;
-                if(originalName==null)continue;
-                if(!renamed.TryGetValue(originalName.IndexOf("::",StringComparison.Ordinal)>=0?originalName:ClassQName(originalName),out replacement))continue;
-                IntPtr text=Marshal.StringToHGlobalUni(DomainName(replacement));movieSymbolNames.Add(text);Marshal.WriteIntPtr(symbol,8,text);
-            }
-            HashSet<IntPtr> excluded=new HashSet<IntPtr>();
-            foreach(byte[] source in sources)foreach(byte[] abc in Container.ReadAbcs(source))foreach(string definition in new RuntimeAbc(abc).Classes) {
-                string resolved;IntPtr metadata=MovieLookup(vm,renamed.TryGetValue(definition,out resolved)?resolved:definition);
-                if(metadata!=IntPtr.Zero)excluded.Add(Marshal.ReadIntPtr(metadata,96));
-            }
+            RenameMovieSymbols(generic,renamed);
             List<KeyValuePair<IntPtr,IntPtr>> registry=MovieRegistry(vm);
             HashSet<IntPtr> parentClasses=new HashSet<IntPtr>();
             foreach(KeyValuePair<IntPtr,IntPtr> entry in registry)parentClasses.Add(entry.Value);
             int arenaOffset=modernDll?27016:26992,compileFlag=modernDll?27024:27000;
             IntPtr previousArena=Marshal.ReadIntPtr(vm,arenaOffset);int previousFlag=Marshal.ReadInt32(vm,compileFlag);
-            MovieRegistry(vm,registry,excluded);
+            MovieRegistry(vm,DomainRegistry(domain,registry),null);
             Marshal.WriteIntPtr(vm,arenaOffset,MovieFunction<Arena>(0x5a580,0x5e0f0)(8192,8192,Marshal.ReadIntPtr(Player,modernDll?13616:13536)));
             Marshal.WriteInt32(vm,compileFlag,1);
+            int previousDomain=ExecutionDomain;ExecutionDomain=domain;
             try {
-                uint dependencies=(uint)(Marshal.ReadInt32(generic,608)|Marshal.ReadInt32(generic,612));
-                for(int library=0;library<32;library++)if((dependencies&(1u<<library))!=0&&(Marshal.ReadInt32(Player,612)&(1u<<library))==0)
-                    LinkMovieLibrary(vm,library,libraryGeneric(library),false,movie);
+                foreach(DomainLibrary library in imports)if((Marshal.ReadInt32(Player,612)&(1u<<library.Id))==0) {
+                    IntPtr imported=libraryGeneric(library.Id);RenameMovieSymbols(imported,library.ClassNames);
+                    LinkMovieLibrary(vm,library.Id,imported,false,movie);
+                    AddMovieDomainDefinitions(domain,library.Source,library.ClassNames,vm);
+                }
                 LinkMovieLibrary(vm,id,generic,true,movie);
                 // The VM GC scans class objects as roots. Keep child definitions
                 // alive independently of the parent's restored name registry.
@@ -150,10 +132,14 @@ namespace IggyViewer {
                     if(Activity!=null)Activity.PatchClass(entry.Value,domain);
                     KeepMovieClass(entry.Value);
                 }
-                foreach(byte[] source in sources)foreach(byte[] abc in Container.ReadAbcs(source))foreach(string definition in new RuntimeAbc(abc).Classes)
-                    {string resolved;AddDomainDefinition(domain,definition,MovieLookup(vm,renamed.TryGetValue(definition,out resolved)?resolved:definition));}
+                AddMovieDomainDefinitions(domain,original,renamed,vm);
             } finally {
+                ExecutionDomain=previousDomain;
                 compilerLifetime.Retain(vm);Marshal.WriteIntPtr(vm,arenaOffset,previousArena);Marshal.WriteInt32(vm,compileFlag,previousFlag);
+                // Timeline class-name placements resolve after linking. Retain
+                // the private QNames without publishing original child names.
+                HashSet<IntPtr> keys=new HashSet<IntPtr>();foreach(KeyValuePair<IntPtr,IntPtr> entry in registry)keys.Add(entry.Key);
+                foreach(KeyValuePair<IntPtr,IntPtr> entry in MovieRegistry(vm))if(keys.Add(entry.Key))registry.Add(entry);
                 MovieRegistry(vm,registry,null);
             }
             if(valid(Player)==0)throw new InvalidDataException("Native verification failed while linking the loaded movie.");
@@ -179,7 +165,7 @@ namespace IggyViewer {
                 if(character<0||character>=count)throw new InvalidDataException("Invalid loaded SymbolClass ID.");
                 Marshal.WriteIntPtr(map,8*character,metadata);
                 IntPtr definition=Marshal.ReadIntPtr(Marshal.ReadIntPtr(generic,152),8*character);
-                if(definition!=IntPtr.Zero)Marshal.WriteIntPtr(metadata,32,definition);
+                if(definition!=IntPtr.Zero&&Marshal.ReadIntPtr(metadata,32)==IntPtr.Zero)Marshal.WriteIntPtr(metadata,32,definition);
             }
             if(root) {
                 IntPtr definition=Marshal.AllocHGlobal(72);movieDefinitions.Add(definition);
@@ -192,7 +178,7 @@ namespace IggyViewer {
                 Marshal.WriteInt16(definition,40,(short)Marshal.ReadInt32(generic,104));Marshal.WriteInt16(definition,42,(short)Marshal.ReadInt32(generic,108));
                 Marshal.WriteIntPtr(definition,56,Marshal.ReadIntPtr(generic,128));Marshal.WriteIntPtr(definition,64,Marshal.ReadIntPtr(generic,136));
                 if(document==IntPtr.Zero)document=BuiltinMovieClip(vm);
-                else Marshal.WriteIntPtr(document,32,definition);
+                else if(Marshal.ReadIntPtr(document,32)==IntPtr.Zero)Marshal.WriteIntPtr(document,32,definition);
                 Marshal.WriteIntPtr(map,document);Marshal.WriteIntPtr(map,8*rootId,document);movie.Definition=definition;
             }
             if((Marshal.ReadInt32(Player,608)&(1u<<id))==0)Marshal.WriteInt32(generic,536,Marshal.ReadInt32(generic,536)+1);
@@ -240,7 +226,7 @@ namespace IggyViewer {
             foreach(IntPtr reference in movieClassReferences)Activity.FreeHostReference(reference);movieClassReferences.Clear();movieClassRoots.Clear();
         }
         void ReleaseMovieDefinitions() {
-            foreach(IntPtr definition in movieDefinitions)Marshal.FreeHGlobal(definition);movieDefinitions.Clear();movieLibraries.Clear();movieDomains.Clear();ExecutionDomain=1;
+            foreach(IntPtr definition in movieDefinitions)Marshal.FreeHGlobal(definition);movieDefinitions.Clear();movieLibraries.Clear();domainLibraries.Clear();movieDomains.Clear();ExecutionDomain=1;
         }
         void ReleaseMovieSymbolNames() {foreach(IntPtr text in movieSymbolNames)Marshal.FreeHGlobal(text);movieSymbolNames.Clear();}
     }

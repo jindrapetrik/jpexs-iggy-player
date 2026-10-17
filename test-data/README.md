@@ -67,7 +67,9 @@ JPEG is cyan. The second PNG is an identical copy under a Unicode filename.
 
 movie-loader.swf and movie-loader.iggy load two instances of movie-loader/child.iggy,
 one through a .swf URL, and a script-free plain.iggy. Parent and child both define
-Main with different static fields. The child contains a three-frame timeline,
+Main with different static fields; the parent explicitly loads each child in a
+domain with the system parent so those definitions remain separate.
+The child contains a three-frame timeline,
 device text, ENTER_FRAME code and a nested PNG request relative to its own file.
 Its named shape is imported from shapes.iggy and has an AS3 LoadedSquare class.
 
@@ -121,7 +123,22 @@ Regenerate with a compatible FFDec library and its dependencies:
 $classpath = 'PATH_TO_FFDEC_JAR;PATH_TO_FFDEC_LIB/*'
 javac -encoding UTF-8 -cp $classpath tools/CreateDomainFixture.java
 java -cp "tools;$classpath" CreateDomainFixture test-data/domains
+javac -encoding UTF-8 -cp $classpath tools/CreateDomainLinkingFixture.java
+java -cp "tools;$classpath" CreateDomainLinkingFixture test-data/domains
 ~~~
+
+domains/linking.iggy loads nested libraries from link1/ and link2/ using identical
+relative URLs. It checks isolated imported static fields, parent-first class
+references, first-definition reuse across different files, static initializer and
+method domains, cached imports, GC and reopen. Class-name timeline placements
+draw blue or red tiles; the shared domain retains the first blue asset binding.
+The library dependencies use zero-symbol ImportAssets2 records; the tile is
+resolved through its AS3 SymbolClass, rather than an ExportAssets table.
+root-imports.iggy also covers imports at startup and delayed registration of user
+classes in the main domain rather than the system domain.
+Its ownerOk diagnostic records the remaining startup-static-initializer issue
+described in the player README; the dynamic-import tests require that initializer
+to observe the selected domain.
 
 ## Filters
 

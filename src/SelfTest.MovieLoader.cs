@@ -86,7 +86,7 @@ namespace IggyViewer {
                         if(ReadValue(native,"ready")==2&&KeyFlag(native,"plainReady")&&ReadValue(native,"errors")==3&&KeyFlag(native,"first.content.nestedReady")&&KeyFlag(native,"second.content.nestedReady"))break;
                     }
                     Check(ReadValue(native,"ready")==2,"Two IGGY movies complete, including .swf URL fallback");
-                    Check(ReadValue(native,"failures")==0,"Loaded movie constructor, identity, metadata and parent/child Main separation");
+                    Check(ReadValue(native,"failures")==0,"Loaded movie constructor, identity, metadata and explicitly isolated Main classes");
                     Check(ReadValue(native,"errors")==3&&ReadValue(native,"cancelled")==0,"Missing/32-bit/corrupt movies fail and cancelled movie stays silent");
                     Check(KeyFlag(native,"plainReady"),"Timeline-only IGGY uses an ordinary MovieClip");
                     Check(ReadString(native,"order")=="open,init,complete,","Movie event ordering");
@@ -125,7 +125,7 @@ namespace IggyViewer {
                 Check(message.IndexOf("still has dependencies",StringComparison.Ordinal)<0,"Dynamic libraries close in dependency order");
             }
             Check(Hash(File.ReadAllBytes(movie))==hash,"Source movie is unchanged");
-            log.Write("PASS: dynamic IGGY content and .swf fallback, colliding Main classes, AS3/text/timeline/transforms, nested images, LoaderInfo/root/parent, events, cancellation, GC, unload/reuse and pending-load shutdown.");
+            log.Write("PASS: dynamic IGGY content and .swf fallback, isolated Main classes, AS3/text/timeline/transforms, nested images, LoaderInfo/root/parent, events, cancellation, GC, unload/reuse and pending-load shutdown.");
         }
     }
 }

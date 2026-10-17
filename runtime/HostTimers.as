@@ -26,7 +26,9 @@ package com.jpexs.iggy.runtime {
             }
         }
         public static function prune():void {
-            for (var key:Object in timers) if (!Timer(key).running) delete timers[key];
+            // The native weak Dictionary can expose a collected key while
+            // enumerating immediately after GC. Do not cast it to Timer.
+            for (var key:Object in timers) if (!(key is Timer) || !Timer(key).running) delete timers[key];
         }
     }
 }

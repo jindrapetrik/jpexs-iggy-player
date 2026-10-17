@@ -9,6 +9,8 @@ package {
     import flash.utils.Timer;
     import flash.media.Sound;
     import flash.media.SoundChannel;
+    import flash.system.ApplicationDomain;
+    import flash.system.LoaderContext;
     public class Main extends MovieClip {
         public static var marker:uint = 99;
         public var first:Loader;
@@ -36,15 +38,15 @@ package {
             first.contentLoaderInfo.addEventListener(Event.INIT, init);
             first.contentLoaderInfo.addEventListener(Event.COMPLETE, complete);
             first.contentLoaderInfo.addEventListener(IOErrorEvent.IO_ERROR, unexpected);
-            first.load(new URLRequest("movie-loader/child.swf"));
+            first.load(new URLRequest("movie-loader/child.swf"), new LoaderContext(false, new ApplicationDomain(null)));
             second = new Loader(); second.x = 260; second.y = 50; addChild(second);
             second.contentLoaderInfo.addEventListener(Event.COMPLETE, other);
             second.contentLoaderInfo.addEventListener(IOErrorEvent.IO_ERROR, unexpected);
-            second.load(new URLRequest("movie-loader/child.iggy"));
+            second.load(new URLRequest("movie-loader/child.iggy"), new LoaderContext(false, new ApplicationDomain(null)));
             var cancel:Loader = new Loader();
             cancel.contentLoaderInfo.addEventListener(Event.COMPLETE, cancelledEvent);
             cancel.contentLoaderInfo.addEventListener(IOErrorEvent.IO_ERROR, cancelledEvent);
-            cancel.load(new URLRequest("movie-loader/child.iggy")); cancel.close();
+            cancel.load(new URLRequest("movie-loader/child.iggy"), new LoaderContext(false, new ApplicationDomain(null))); cancel.close();
             var missing:Loader = new Loader();
             missing.contentLoaderInfo.addEventListener(IOErrorEvent.IO_ERROR, failed);
             missing.load(new URLRequest("movie-loader/missing.iggy"));
@@ -83,7 +85,7 @@ package {
         private function plainComplete(e:Event):void { plainReady = plain.content is MovieClip && MovieClip(plain.content).totalFrames == 3; }
         public function unloadMovies():void { saved = MovieClip(first.content); first.unload(); second.unload(); plain.unload(); }
         public function releaseSaved():void { saved = null; }
-        public function reuse():void { first.load(new URLRequest("movie-loader/child.iggy")); }
+        public function reuse():void { first.load(new URLRequest("movie-loader/child.iggy"), new LoaderContext(false, new ApplicationDomain(null))); }
         public function stopFirst(gc:Boolean):void { saved = MovieClip(first.content); first.unloadAndStop(gc); }
         public function mouseEvent():void { stage.dispatchEvent(new MouseEvent(MouseEvent.MOUSE_DOWN)); }
         public function stopSecond():void { second.unloadAndStop(); }

@@ -338,6 +338,7 @@ namespace IggyViewer {
             if(imageLoader!=null&&loaderInfo!=null)loaderInfo.LoadedInfo=imageLoader.LookupLoaderInfo;
             if(runtimeScripts!=null&&(runtimeScripts.NeedsSharedObject||runtimeScripts.NeedsLoader))sharedObjectStorage=new SharedObjectStorage(this,StorageDirectory,log,imageLoader);
             wallClock.Restart();UpdateClock();initialize(Player);
+            PatchDeferredDomainClasses();
             play(Player);
             if (valid(Player) == 0) throw new InvalidDataException("The movie failed during initialization; see the log.");
             } catch {Close();throw;}

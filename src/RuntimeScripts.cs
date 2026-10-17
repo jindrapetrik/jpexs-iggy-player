@@ -104,7 +104,7 @@ namespace IggyViewer {
             Dictionary<int,string> changed=new Dictionary<int,string>();
             for(int i=1;i<names.Count;i++) {
                 Name name=names[i];string qualified=Qualified(i),replacement;
-                if(qualified!=null&&classes.TryGetValue(qualified,out replacement))changed[i]=replacement;
+                if(qualified!=null&&classes.TryGetValue(qualified,out replacement)&&qualified!=replacement)changed[i]=replacement;
                 // Multi-namespace property lookups can share a class's text
                 // name (object.Main); they must retain their public lookup.
             }
@@ -246,13 +246,22 @@ namespace IggyViewer {
             }
             return result;
         }
-        internal static byte[] ReplaceAbcs(byte[] bytes,List<byte[]> abcs,Log log) {
-            int entry=MainEntry(bytes);if(entry<0||abcs.Count==0)return bytes;
+        internal static byte[] ReplaceAbcs(byte[] bytes,List<byte[]> abcs,Log log,Dictionary<string,string> imports=null) {
+            int entry=MainEntry(bytes);if(entry<0||(abcs.Count==0&&imports==null))return bytes;
             int size=BitConverter.ToInt32(bytes,entry+4),main=BitConverter.ToInt32(bytes,entry+12),blocks=BitConverter.ToInt32(bytes,28),target=0;
             for(int at=32;at<entry;at+=16){int kind=BitConverter.ToUInt16(bytes,at);if(kind==1||kind==8)target++;}
             List<Field> pointers=new List<Field>();byte[] data;
             using(MemoryStream block=new MemoryStream())using(BinaryWriter w=new BinaryWriter(block)) {
                 w.Write(bytes,main,size);int previous=152;
+                if(imports!=null) {
+                    string[] urls=Imports(bytes);long table=112L+BitConverter.ToInt64(bytes,main+112);
+                    for(int i=0;i<urls.Length;i++) {
+                        string replacement;if(!imports.TryGetValue(urls[i],out replacement))continue;
+                        block.Position=block.Length;int text=checked((int)block.Position);w.Write(Encoding.Unicode.GetBytes(replacement+"\0"));
+                        block.Position=table+24*i;w.Write(text-block.Position);
+                    }
+                }
+                block.Position=152;w.Write(1L);
                 foreach(byte[] abc in abcs) {
                     block.Position=block.Length;while(block.Position%8!=0)w.Write((byte)0);
                     int node=checked((int)block.Position);block.Position=previous;w.Write((long)node-previous);
