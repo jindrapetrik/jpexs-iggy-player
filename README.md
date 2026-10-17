@@ -157,10 +157,27 @@ loadBytes(ByteArray, LoaderContext) accepts PNG, JPEG and compiled 64-bit IGGY
 data. It snapshots the entire array, regardless of position, before returning;
 later writes to the caller's array do not affect decoding. Embedded
 DefineBinaryData ByteArray subclasses and writable arrays are supported.
-ByteArray compatibility implements length, position, bytesAvailable, readByte,
-readUnsignedByte, writeByte, readBytes and writeBytes; the remaining binary,
-UTF, object serialization and compression methods are still native stubs.
-Bounds failures currently raise RangeError, including reads past the end.
+ByteArray compatibility implements length, position, bytesAvailable, endian,
+readBytes/writeBytes, and Boolean, signed/unsigned integer, Float and Double
+reading/writing. Endian defaults to bigEndian for each instance. IEEE values
+include negative zero, subnormals, infinities and NaN. readUTF/writeUTF use a
+16-bit byte-length prefix in the selected endian; readUTFBytes/writeUTFBytes
+handle strings without a prefix. UTF reads skip a UTF-8 BOM and terminate the
+returned string at NUL while consuming the full requested range. toString()
+also recognizes UTF-16 BOMs and leaves position unchanged. readMultiByte and
+writeMultiByte use Windows-supported character sets, falling back to the system
+code page for unknown names. Reads past the end raise EOFError; invalid bounds,
+endian values and null strings raise the corresponding typed AS3 errors.
+compress()/uncompress() implement zlib by default and accept "deflate" for raw
+DEFLATE data. Compression covers the whole array and sets position to the end;
+decompression sets position to zero. Headers, block structure, termination,
+distances and zlib checksums are checked before replacing the input. Failed
+decompression leaves bytes and position unchanged; output is limited to 256 MiB.
+Endian and CompressionAlgorithm constants are supplied by the host compatibility
+layer. These methods also work in movies that do not reference Loader.
+LZMA, AMF readObject/writeObject and newer ByteArray APIs absent from the DLL
+(including clear, deflate and inflate aliases) are not implemented. Use
+compress("deflate")/uncompress("deflate") for raw DEFLATE.
 Writable buffers detach from embedded data on the first write and are released
 by native collection or movie shutdown. Memory-loaded movies have a synthetic
 file URL based on their content hash in the loading movie's directory, which
@@ -311,6 +328,7 @@ IggyPlayer.exe --self-test-loader test-data/loader.iggy output-directory
 IggyPlayer.exe --self-test-movie-loader test-data/movie-loader.iggy output-directory
 IggyPlayer.exe --self-test-domains test-data/domains.iggy output-directory
 IggyPlayer.exe --self-test-loader-bytes test-data/bytes-loader.iggy output-directory
+IggyPlayer.exe --self-test-bytearray test-data/bytearray.iggy output-directory
 IggyPlayer.exe --self-test-unload test-data/movie-loader.iggy output-directory
 IggyPlayer.exe --self-test-unload-audio test-data/movie-loader.iggy output-directory
 IggyPlayer.exe --self-test-audio test-data/audio.iggy output-directory

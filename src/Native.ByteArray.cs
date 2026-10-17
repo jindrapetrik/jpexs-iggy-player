@@ -8,17 +8,19 @@ namespace IggyViewer {
         const int ByteArrayLimit=256*1024*1024;
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr ByteArrayCall(IntPtr context);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr ByteArrayNumber(IntPtr vm,double value);
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr ByteArrayError(IntPtr vm,int code);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr ByteArrayNew(IntPtr vm,IntPtr metadata);
         readonly List<ByteArrayCall> byteArrayCallbacks=new List<ByteArrayCall>();
         readonly HashSet<IntPtr> byteArrayBuffers=new HashSet<IntPtr>();
         internal int ByteArrayBufferCount {get{return byteArrayBuffers.Count;}}
         IntPtr byteArrayMetadata; VoidPP byteArrayFinalizer;
-        int byteArrayRangeError;
+        readonly Dictionary<string,IntPtr> byteArrayErrors=new Dictionary<string,IntPtr>();
+        sealed class ByteArrayFailure : Exception {
+            internal readonly string Kind;
+            internal ByteArrayFailure(string kind,string message):base(message){Kind=kind;}
+        }
         internal void InstallByteArrays(Dictionary<string,IntPtr> classes) {
             byteArrayMetadata=classes["ByteArray"];IntPtr vm=Marshal.ReadIntPtr(Player,modernDll?10560:10480);
-            byteArrayRangeError=0;
-            for(int code=113;code<=121;code++)if(Marshal.ReadIntPtr(vm,8*(code+1118)-(modernDll?0:24))==classes["RangeError"])byteArrayRangeError=code;
-            if(byteArrayRangeError==0)throw new InvalidDataException("Cannot locate native ByteArray range errors.");
+            foreach(string name in new string[]{"Error","EOFError","RangeError","ArgumentError","TypeError"})byteArrayErrors[name]=classes[name];
             // Writable storage is owned by the host, not the DLL's arena.
             // VM finalizers receive the untagged object address. The DLL's
             // ByteArray finalizer incorrectly uses the tagged +47 offset.
@@ -34,8 +36,8 @@ namespace IggyViewer {
                     IntPtr function=Marshal.ReadIntPtr(entries,8*i);if(table==64)function=IntPtr.Subtract(function,1);
                     if(function.ToInt64()<65536||Marshal.ReadByte(function)!=16)continue;
                     IntPtr text=Marshal.ReadIntPtr(function,8);string name=Marshal.PtrToStringUni(IntPtr.Add(text,52),Marshal.ReadInt32(text,48));
-                    bool property=name=="length"||name=="position"||name=="bytesAvailable";
-                    if(table==64&&Array.IndexOf(new string[]{"readByte","readUnsignedByte","writeByte","readBytes","writeBytes"},name)<0||table!=64&&!property)continue;
+                    bool property=name=="length"||name=="position"||name=="bytesAvailable"||name=="endian";
+                    if(table==64&&!ByteArrayMethods.Contains(name)||table!=64&&!property)continue;
                     string operation=table==80?"set_"+name:name;
                     ByteArrayCall callback=context=>ByteArrayOperation(context,operation);byteArrayCallbacks.Add(callback);
                     Marshal.WriteIntPtr(function,16,Marshal.GetFunctionPointerForDelegate(callback));
@@ -77,22 +79,21 @@ namespace IggyViewer {
         }
         void ReleaseByteArrays() {
             foreach(IntPtr buffer in byteArrayBuffers)Marshal.FreeHGlobal(buffer);
-            byteArrayBuffers.Clear();byteArrayCallbacks.Clear();byteArrayMetadata=IntPtr.Zero;byteArrayFinalizer=null;
+            byteArrayBuffers.Clear();byteArrayCallbacks.Clear();byteArrayErrors.Clear();byteArrayMetadata=IntPtr.Zero;byteArrayFinalizer=null;
         }
         uint ByteArrayArgument(IntPtr context,int index) {
             if(Marshal.ReadInt32(context,16)<index)return 0;
-            IntPtr value=Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,24),8*index);long bits=value.ToInt64();
-            if((bits&1)==0)return unchecked((uint)(bits>>1));
-            if((bits&3)==1&&bits>65536&&Marshal.ReadByte(IntPtr.Subtract(value,1))==7) {
-                double number=*(double*)((byte*)value+7);if(double.IsNaN(number)||double.IsInfinity(number))return 0;
-                number=Math.Truncate(number)%4294967296.0;if(number<0)number+=4294967296.0;return (uint)number;
-            }
-            return 0;
+            double number=ByteArrayNumeric(context,index);if(double.IsNaN(number)||double.IsInfinity(number))return 0;
+            number=Math.Truncate(number)%4294967296.0;if(number<0)number+=4294967296.0;return (uint)number;
         }
         IntPtr ByteArrayOperation(IntPtr context,string operation) {
             IntPtr vm=Marshal.ReadIntPtr(context),args=Marshal.ReadIntPtr(context,24),value=Marshal.ReadIntPtr(args);
             try {
-                int length=ByteArrayLength(value);uint position=(uint)Marshal.ReadInt32(value,59),argument=ByteArrayArgument(context,1);double result=0;
+                int required=operation=="readMultiByte"||operation=="writeMultiByte"?2:operation.StartsWith("write",StringComparison.Ordinal)||operation.StartsWith("set_",StringComparison.Ordinal)||operation=="readBytes"||operation=="readUTFBytes"?1:0;
+                if(Marshal.ReadInt32(context,16)<required)throw new ByteArrayFailure("ArgumentError","Missing ByteArray argument.");
+                uint argument=operation=="set_position"||operation=="set_length"||operation=="writeByte"?ByteArrayArgument(context,1):0;
+                value=ByteArrayReceiver(context);
+                int length=ByteArrayLength(value);uint position=(uint)Marshal.ReadInt32(value,59);double result=0;
                 switch(operation) {
                     case "length":result=length;break;
                     case "position":result=position;break;
@@ -109,14 +110,17 @@ namespace IggyViewer {
                         else if(Marshal.ReadIntPtr(value,39)!=IntPtr.Zero)ResizeByteArray(value,length);
                         Marshal.WriteByte(ByteArrayData(value),(int)position,(byte)argument);Marshal.WriteInt32(value,59,(int)position+1);return IntPtr.Zero;
                     case "readBytes":case "writeBytes":
-                        IntPtr other=Marshal.ReadInt32(context,16)>=1?Marshal.ReadIntPtr(args,8):IntPtr.Zero;
-                        if(!IsByteArray(other))throw new InvalidDataException();
                         uint offset=ByteArrayArgument(context,2),count=ByteArrayArgument(context,3);bool read=operation=="readBytes";
+                        value=ByteArrayReceiver(context);IntPtr other=ByteArrayParameter(context,1);position=(uint)Marshal.ReadInt32(value,59);
+                        if(!IsByteArray(other))throw new ByteArrayFailure("TypeError","Expected a ByteArray.");
                         byte[] source=CopyByteArray(read?value:other);uint start=read?position:offset;
-                        if(start>(uint)source.Length)throw new EndOfStreamException();if(count==0)count=(uint)source.Length-start;
+                        if(read&&start>(uint)source.Length&&count!=0)throw new EndOfStreamException();start=Math.Min(start,(uint)source.Length);
+                        if(count==0)count=(uint)source.Length-start;
                         uint destination=read?offset:position;
-                        if(count>(uint)source.Length-start||(ulong)destination+count>ByteArrayLimit)throw new InvalidDataException();
+                        if(count>(uint)source.Length-start){if(read)throw new EndOfStreamException();throw new InvalidDataException();}
+                        if((ulong)destination+count>ByteArrayLimit)throw new InvalidDataException();
                         IntPtr target=read?other:value;uint saved=(uint)Marshal.ReadInt32(target,59);
+                        if(read&&destination+count>(uint)ByteArrayLength(target))ResizeByteArray(target,(int)(destination+count));
                         if(count!=0) {
                             if(destination+count>(uint)ByteArrayLength(target))ResizeByteArray(target,(int)(destination+count));
                             else if(Marshal.ReadIntPtr(target,39)!=IntPtr.Zero)ResizeByteArray(target,ByteArrayLength(target));
@@ -124,13 +128,31 @@ namespace IggyViewer {
                         }
                         Marshal.WriteInt32(target,59,read?unchecked((int)saved):(int)(position+count));
                         if(read)Marshal.WriteInt32(value,59,(int)(position+count));return IntPtr.Zero;
-                    default:throw new InvalidDataException();
+                    default:return ByteArrayDataOperation(context,operation);
                 }
                 Marshal.WriteIntPtr(Marshal.ReadIntPtr(context,8),MovieFunction<ByteArrayNumber>(0x449a0,0x46be0)(vm,result));return IntPtr.Zero;
             } catch(Exception ex) {
-                if(!(ex is InvalidDataException)&&!(ex is EndOfStreamException)&&!(ex is OutOfMemoryException))throw;
-                return MovieFunction<ByteArrayError>(0x79930,0x7c7a0)(vm,byteArrayRangeError);
+                ByteArrayFailure failure=ex as ByteArrayFailure;
+                string kind=failure!=null?failure.Kind:ex is EndOfStreamException?"EOFError":ex is InvalidDataException||ex is OutOfMemoryException?"RangeError":null;
+                if(kind==null)throw;
+                return RaiseByteArrayError(vm,kind,ex.Message);
             }
+        }
+        IntPtr RaiseByteArrayError(IntPtr vm,string kind,string message) {
+            int shift=modernDll?0:24,exception=10528-shift;
+            IntPtr value=MovieFunction<ByteArrayNew>(0x44b40,0x47890)(vm,byteArrayErrors[kind]);
+            // Root the exception before allocating its message: native strings
+            // may trigger the moving collector, including during an AS3 call.
+            Marshal.WriteIntPtr(vm,exception,value);
+            IntPtr text=Marshal.StringToHGlobalUni(message);
+            try {
+                IntPtr nativeText=MovieFunction<MovieString>(0x452a0,0x47140)(vm,text,message.Length);
+                Marshal.WriteIntPtr(Marshal.ReadIntPtr(vm,exception),39,nativeText);
+            } finally {Marshal.FreeHGlobal(text);}
+            Marshal.WriteIntPtr(vm,10560-shift,Marshal.ReadIntPtr(vm,10576-shift));
+            IntPtr continuation=Marshal.ReadIntPtr(vm,10584-shift);
+            Marshal.WriteIntPtr(vm,10552-shift,continuation);Marshal.WriteIntPtr(vm,10544-shift,IntPtr.Zero);
+            Marshal.WriteIntPtr(vm,10576-shift,IntPtr.Zero);Marshal.WriteIntPtr(vm,10584-shift,IntPtr.Zero);return continuation;
         }
     }
 }

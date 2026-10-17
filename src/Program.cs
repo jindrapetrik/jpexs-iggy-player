@@ -53,6 +53,7 @@ namespace IggyViewer {
                 if(args.Length>=3&&args[0]=="--self-test-runtime") {SelfTest.RunRuntime(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-loader") {SelfTest.RunLoader(dll,args[1],args[2],log,renderer);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-loader-bytes") {SelfTest.RunLoaderBytes(dll,args[1],args[2],log,renderer);return 0;}
+                if(args.Length>=3&&args[0]=="--self-test-bytearray") {SelfTest.RunByteArray(dll,args[1],args[2],log,renderer);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-movie-loader") {SelfTest.RunMovieLoader(dll,args[1],args[2],log,renderer);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-domains") {SelfTest.RunMovieDomains(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-unload") {SelfTest.RunMovieUnload(dll,args[1],args[2],log,renderer);return 0;}

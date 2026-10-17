@@ -617,6 +617,7 @@ namespace IggyViewer {
             // Flush while the player is alive, before releasing its memory.
             if(sharedObjectStorage!=null){sharedObjectStorage.Detach();sharedObjectStorage=null;}
             if(imageLoader!=null)imageLoader.CancelAll();
+            DetachByteArrays();
             if(Activity!=null)Activity.Detach();
             DetachMovieClasses();
             if(compilerLifetime!=null){compilerLifetime.Dispose();compilerLifetime=null;}

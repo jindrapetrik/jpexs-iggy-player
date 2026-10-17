@@ -169,6 +169,28 @@ java -cp "tools;$classpath" CreateBytesLoaderFixture test-data/bytes-loader
 The files under bytes-loader/scripts are the fixture's AS3 sources. The child
 container is embedded in the parent; no memory-load temporary files are written.
 
+## ByteArray binary data
+
+bytearray.swf/bytearray.iggy test numeric data against Java ByteBuffer fixtures
+in both byte orders, including IEEE negative zero, subnormals, infinities and NaN.
+They cover UTF-8 byte-length prefixes, BOMs/NULs, strings over 65535 encoded bytes,
+Windows-1250 and Shift-JIS, typed EOF and argument errors, moving GC and reopen.
+Java Deflater fixtures cover dynamic, fixed and stored DEFLATE blocks and zlib;
+the test also decompresses an embedded PNG and loads it through Loader.loadBytes.
+Malformed blocks, truncation, checksums and bounded output are verified. The
+bytearray/only movie checks activation without any Loader references.
+
+Regenerate after the loader image fixture, using the existing helper:
+
+~~~powershell
+$classpath = 'tools;PATH_TO_FFDEC_JAR;PATH_TO_FFDEC_LIB/*'
+javac -encoding UTF-8 -cp $classpath tools/CreateBytesLoaderFixture.java tools/CreateByteArrayFixture.java
+java -cp $classpath CreateByteArrayFixture test-data/bytearray
+~~~
+
+The main AS3 source is bytearray/ByteArrayMain.as. Run --self-test-bytearray
+test-data/bytearray.iggy test-output/bytearray, or use test.ps1 for regression.
+
 ## Filters
 
 The filters.swf and filters.iggy fixtures exercise translucent color

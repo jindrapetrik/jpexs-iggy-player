@@ -3,6 +3,8 @@ package com.jpexs.iggy.runtime {
         public static function original(name:String):String {
             if (name == "com.jpexs.iggy.runtime::HostApplicationDomain") return "flash.system::ApplicationDomain";
             if (name == "com.jpexs.iggy.runtime::HostLoaderContext") return "flash.system::LoaderContext";
+            if (name == "com.jpexs.iggy.runtime::HostEndian") return "flash.utils::Endian";
+            if (name == "com.jpexs.iggy.runtime::HostCompressionAlgorithm") return "flash.utils::CompressionAlgorithm";
             var prefix:String = "com.jpexs.iggy.domain.d";
             if (name.indexOf(prefix) != 0) return name;
             var dot:int = name.indexOf(".", prefix.length);

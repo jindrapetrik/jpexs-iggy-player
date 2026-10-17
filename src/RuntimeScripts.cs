@@ -172,6 +172,8 @@ namespace IggyViewer {
                 if(loader&&!domainsOnly&&q=="flash.events::IOErrorEvent")changes.Add(i,"HostIOErrorEvent");
                 if(loader&&q=="flash.system::ApplicationDomain")changes.Add(i,"HostApplicationDomain");
                 if(loader&&q=="flash.system::LoaderContext")changes.Add(i,"HostLoaderContext");
+                if(loader&&q=="flash.utils::Endian")changes.Add(i,"HostEndian");
+                if(loader&&q=="flash.utils::CompressionAlgorithm")changes.Add(i,"HostCompressionAlgorithm");
                 if(loader&&!domainsOnly&&q=="flash.utils::getDefinitionByName")changes.Add(i,"HostGetDefinitionByName");
                 if(loader&&!domainsOnly&&q=="flash.utils::getQualifiedClassName")changes.Add(i,"HostGetQualifiedClassName");
                 if(loader&&!domainsOnly&&q=="flash.utils::getQualifiedSuperclassName")changes.Add(i,"HostGetQualifiedSuperclassName");
@@ -219,6 +221,8 @@ namespace IggyViewer {
             loader|=references.Contains("flash.system::ApplicationDomain")||references.Contains("flash.system::LoaderContext");
             loader|=references.Contains("::applicationDomain");
             loader|=references.Contains("flash.utils::getDefinitionByName");
+            loader|=references.Contains("flash.utils::ByteArray");
+            loader|=references.Contains("flash.utils::Endian")||references.Contains("flash.utils::CompressionAlgorithm");
             foreach(string timer in new string[]{"setInterval","setTimeout","clearInterval","clearTimeout"})if(references.Contains("flash.utils::"+timer)&&!definitions.Contains("flash.utils::"+timer))timers=true;
             shared|=loader&&!definitions.Contains("flash.net::SharedObject");
             fileList=references.Contains("flash.net::FileReferenceList")&&!definitions.Contains("flash.net::FileReferenceList");
@@ -228,6 +232,8 @@ namespace IggyViewer {
                 throw new InvalidDataException("Movie conflicts with the Iggy runtime compatibility namespace.");
             if(shared&&definitions.Contains("com.jpexs.iggy.runtime::HostCodec"))throw new InvalidDataException("Movie conflicts with the SharedObject codec namespace.");
             if(definitions.Contains("com.jpexs.iggy.runtime::HostTimers")||definitions.Contains("com.jpexs.iggy.runtime::HostTimerTask"))throw new InvalidDataException("Movie conflicts with the host timer namespace.");
+            foreach(string name in new string[]{"flash.utils::Endian","flash.utils::CompressionAlgorithm","com.jpexs.iggy.runtime::HostEndian","com.jpexs.iggy.runtime::HostCompressionAlgorithm"})
+                if(definitions.Contains(name))throw new InvalidDataException("Movie conflicts with the host ByteArray namespace.");
             foreach(string name in new string[]{"flash.system::ApplicationDomain","flash.system::LoaderContext","com.jpexs.iggy.runtime::HostDefinitionRequest","com.jpexs.iggy.runtime::HostBytesRequest","com.jpexs.iggy.runtime::HostDomainBinding","com.jpexs.iggy.runtime::HostDomainFactory","com.jpexs.iggy.runtime::HostDomainNames","com.jpexs.iggy.runtime::HostApplicationDomain","com.jpexs.iggy.runtime::HostLoaderContext","com.jpexs.iggy.runtime::HostGetDefinitionByName","com.jpexs.iggy.runtime::HostGetQualifiedClassName","com.jpexs.iggy.runtime::HostGetQualifiedSuperclassName"})
                 if(definitions.Contains(name))throw new InvalidDataException("Movie conflicts with the host application domain namespace.");
         }

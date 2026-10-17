@@ -399,6 +399,7 @@ namespace IggyViewer {
             return originalLoaderGetter(context);
         }
         internal void Prune() {
+            native.PruneByteArrays();
             PruneByteRequests();
             for(int i=definitions.Count-1;i>=0;i--)if(Marshal.ReadIntPtr(definitions[i].Request).ToInt64()==7){freeReference(native.Player,definitions[i].Request);definitions.RemoveAt(i);}
             for(int i=tickets.Count-1;i>=0;i--)if(Marshal.ReadIntPtr(tickets[i].Request).ToInt64()==7){freeReference(native.Player,tickets[i].Request);freeReference(native.Player,tickets[i].Info);tickets.RemoveAt(i);}
