@@ -80,7 +80,7 @@ namespace IggyViewer {
             native.InitializeMovieDomains(classes);
             native.InstallByteArrays(classes);
             // These error subclasses have native stub constructors.
-            foreach(string name in new string[]{"ReferenceError","SecurityError","ArgumentError","TypeError"})if(classes.ContainsKey(name)&&classes.ContainsKey("Error"))
+            foreach(string name in new string[]{"ReferenceError","SecurityError","ArgumentError","TypeError","RangeError","EOFError"})if(classes.ContainsKey(name)&&classes.ContainsKey("Error"))
                 Marshal.WriteIntPtr(classes[name],56,Marshal.ReadIntPtr(classes["Error"],56));
             // Initialize inherited Event state missing from ProgressEvent.
             Marshal.WriteIntPtr(classes["ProgressEvent"],56,Marshal.ReadIntPtr(classes["Event"],56));
@@ -273,6 +273,7 @@ namespace IggyViewer {
             IntPtr result=originalInfoConstructor(context);
             if(Marshal.ReadInt32(context,16)>0) {
                 IntPtr arguments=Marshal.ReadIntPtr(context,24),info=Marshal.ReadIntPtr(arguments),owner=Marshal.ReadIntPtr(arguments,8);
+                if(ReadText(owner)=="__iggy_amf"&&Marshal.ReadInt32(context,16)>=4){StartAmfRequest(info,arguments);return result;}
                 if(ReadText(owner)=="__iggy_bytes"&&Marshal.ReadInt32(context,16)>=5) {
                     StartBytes(info,arguments);return result;
                 }
@@ -360,6 +361,7 @@ namespace IggyViewer {
         }
         IntPtr GetContent(IntPtr context) {
             IntPtr receiver=Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,24));
+            IntPtr amfResult;if(AmfContent(context,receiver,out amfResult))return amfResult;
             for(int i=0;i<byteRequests.Count;i++)if(Marshal.ReadIntPtr(byteRequests[i].Request)==receiver) {
                 ByteRequest request=byteRequests[i];byteRequests.RemoveAt(i);freeReference(native.Player,request.Request);
                 return native.ReturnMovieString(context,request.Token);
@@ -400,6 +402,7 @@ namespace IggyViewer {
         }
         internal void Prune() {
             native.PruneByteArrays();
+            PruneAmfRequests();
             PruneByteRequests();
             for(int i=definitions.Count-1;i>=0;i--)if(Marshal.ReadIntPtr(definitions[i].Request).ToInt64()==7){freeReference(native.Player,definitions[i].Request);definitions.RemoveAt(i);}
             for(int i=tickets.Count-1;i>=0;i--)if(Marshal.ReadIntPtr(tickets[i].Request).ToInt64()==7){freeReference(native.Player,tickets[i].Request);freeReference(native.Player,tickets[i].Info);tickets.RemoveAt(i);}
@@ -422,6 +425,7 @@ namespace IggyViewer {
             }
         }
         internal void CancelAll() {
+            foreach(AmfRequest request in amfRequests)FreeAmfRequest(request);amfRequests.Clear();
             foreach(ByteRequest request in byteRequests)freeReference(native.Player,request.Request);byteRequests.Clear();
             foreach(IntPtr reference in domainObjects.Values)freeReference(native.Player,reference);domainObjects.Clear();
             foreach(DefinitionTicket definition in definitions)freeReference(native.Player,definition.Request);definitions.Clear();

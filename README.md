@@ -175,9 +175,24 @@ distances and zlib checksums are checked before replacing the input. Failed
 decompression leaves bytes and position unchanged; output is limited to 256 MiB.
 Endian and CompressionAlgorithm constants are supplied by the host compatibility
 layer. These methods also work in movies that do not reference Loader.
-LZMA, AMF readObject/writeObject and newer ByteArray APIs absent from the DLL
-(including clear, deflate and inflate aliases) are not implemented. Use
-compress("deflate")/uncompress("deflate") for raw DEFLATE.
+readObject/writeObject support AMF0 and AMF3 primitives, UTF-8 strings, objects,
+arrays (including associative entries), dates, shared references and cycles.
+AMF3 also supports nested ByteArrays; AMF0 uses the AMF3 escape for those values.
+objectEncoding and the static defaultObjectEncoding accept 0 or 3; the default
+is AMF3 and is captured when an array is constructed. AMF always uses its protocol
+byte order, independently of endian. Each call starts fresh reference tables.
+registerClassAlias/getClassByAlias support typed objects with inherited public
+variables, readable/writable properties and dynamic fields, excluding [Transient]
+members. Alias lookup searches the current application domain and its parents;
+isolated loaded domains have separate registrations. Unknown aliases decode as
+anonymous objects. Failed writes leave the destination unchanged; failed reads
+advance position by the consumed bytes. Each operation is limited to 16 MiB,
+32 nesting levels and 100000 collection entries. Externalizable objects, XML,
+vectors, dictionaries and custom dynamic-property writers are not implemented;
+unsupported types and malformed references raise typed AS3 errors.
+LZMA and newer ByteArray APIs absent from the DLL (including clear, deflate and
+inflate aliases) are not implemented. Use compress("deflate")/uncompress("deflate")
+for raw DEFLATE.
 Writable buffers detach from embedded data on the first write and are released
 by native collection or movie shutdown. Memory-loaded movies have a synthetic
 file URL based on their content hash in the loading movie's directory, which
@@ -329,6 +344,7 @@ IggyPlayer.exe --self-test-movie-loader test-data/movie-loader.iggy output-direc
 IggyPlayer.exe --self-test-domains test-data/domains.iggy output-directory
 IggyPlayer.exe --self-test-loader-bytes test-data/bytes-loader.iggy output-directory
 IggyPlayer.exe --self-test-bytearray test-data/bytearray.iggy output-directory
+IggyPlayer.exe --self-test-amf test-data/amf.iggy output-directory
 IggyPlayer.exe --self-test-unload test-data/movie-loader.iggy output-directory
 IggyPlayer.exe --self-test-unload-audio test-data/movie-loader.iggy output-directory
 IggyPlayer.exe --self-test-audio test-data/audio.iggy output-directory

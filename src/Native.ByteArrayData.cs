@@ -10,9 +10,9 @@ namespace IggyViewer {
             "readByte","readUnsignedByte","writeByte","readBytes","writeBytes",
             "readBoolean","writeBoolean","readShort","readUnsignedShort","writeShort",
             "readInt","readUnsignedInt","writeInt","writeUnsignedInt","readFloat","readDouble","writeFloat","writeDouble",
-            "readUTF","readUTFBytes","writeUTF","writeUTFBytes","readMultiByte","writeMultiByte","toString","compress","uncompress"
+            "readUTF","readUTFBytes","writeUTF","writeUTFBytes","readMultiByte","writeMultiByte","toString","compress","uncompress","readObject","writeObject"
         },StringComparer.Ordinal);
-        sealed class ByteArrayState {internal IntPtr Reference;internal bool LittleEndian;}
+        sealed class ByteArrayState {internal IntPtr Reference;internal bool LittleEndian;internal int Encoding=3;}
         readonly List<ByteArrayState> byteArrayStates=new List<ByteArrayState>();
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int ByteArrayConvert(IntPtr vm,IntPtr value,out double number);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr ByteArrayAtom(IntPtr vm,uint words);
@@ -145,7 +145,7 @@ namespace IggyViewer {
                     ResizeByteArray(value,transformed.Length);
                     if(transformed.Length!=0)Marshal.Copy(transformed,0,ByteArrayData(value),transformed.Length);
                     Marshal.WriteInt32(value,59,operation=="compress"?transformed.Length:0);return IntPtr.Zero;
-                default:throw new InvalidOperationException("Unknown ByteArray operation: "+operation);
+                default:return ByteArrayAmfProperty(context,operation);
             }
             Marshal.WriteIntPtr(Marshal.ReadIntPtr(context,8),ByteArrayNumericResult(vm,result));return IntPtr.Zero;
         }

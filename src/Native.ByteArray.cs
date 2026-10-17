@@ -28,7 +28,10 @@ namespace IggyViewer {
             IntPtr originalFinalizer=Marshal.ReadIntPtr(byteArrayMetadata,16),replacement=Marshal.GetFunctionPointerForDelegate(byteArrayFinalizer);
             foreach(KeyValuePair<IntPtr,IntPtr> entry in MovieRegistry(vm))if(Marshal.ReadIntPtr(entry.Value,16)==originalFinalizer)Marshal.WriteIntPtr(entry.Value,16,replacement);
             Marshal.WriteIntPtr(byteArrayMetadata,16,replacement);
-            IntPtr traits=Marshal.ReadIntPtr(byteArrayMetadata,72);
+            InstallByteArrayConstructor();InstallByteArrayMethods(Marshal.ReadIntPtr(byteArrayMetadata,72),false);
+            InstallByteArrayMethods(Marshal.ReadIntPtr(byteArrayMetadata,80),true);
+        }
+        void InstallByteArrayMethods(IntPtr traits,bool statics) {
             foreach(int table in new int[]{64,72,80}) {
                 int count=(ushort)Marshal.ReadInt16(traits,table==64?22:table==72?26:24);IntPtr entries=Marshal.ReadIntPtr(traits,table);
                 if(count>256)throw new InvalidDataException("Invalid native ByteArray method table.");
@@ -36,9 +39,10 @@ namespace IggyViewer {
                     IntPtr function=Marshal.ReadIntPtr(entries,8*i);if(table==64)function=IntPtr.Subtract(function,1);
                     if(function.ToInt64()<65536||Marshal.ReadByte(function)!=16)continue;
                     IntPtr text=Marshal.ReadIntPtr(function,8);string name=Marshal.PtrToStringUni(IntPtr.Add(text,52),Marshal.ReadInt32(text,48));
-                    bool property=name=="length"||name=="position"||name=="bytesAvailable"||name=="endian";
+                    if(statics&&name!="defaultObjectEncoding")continue;
+                    bool property=name=="length"||name=="position"||name=="bytesAvailable"||name=="endian"||name=="objectEncoding"||statics;
                     if(table==64&&!ByteArrayMethods.Contains(name)||table!=64&&!property)continue;
-                    string operation=table==80?"set_"+name:name;
+                    string operation=(table==80?"set_":"")+(statics?"static_":"")+name;
                     ByteArrayCall callback=context=>ByteArrayOperation(context,operation);byteArrayCallbacks.Add(callback);
                     Marshal.WriteIntPtr(function,16,Marshal.GetFunctionPointerForDelegate(callback));
                 }
@@ -79,7 +83,7 @@ namespace IggyViewer {
         }
         void ReleaseByteArrays() {
             foreach(IntPtr buffer in byteArrayBuffers)Marshal.FreeHGlobal(buffer);
-            byteArrayBuffers.Clear();byteArrayCallbacks.Clear();byteArrayErrors.Clear();byteArrayMetadata=IntPtr.Zero;byteArrayFinalizer=null;
+            byteArrayBuffers.Clear();byteArrayCallbacks.Clear();byteArrayErrors.Clear();amfSchemas.Clear();byteArrayMetadata=IntPtr.Zero;byteArrayFinalizer=null;byteArrayConstructor=null;
         }
         uint ByteArrayArgument(IntPtr context,int index) {
             if(Marshal.ReadInt32(context,16)<index)return 0;
@@ -93,7 +97,8 @@ namespace IggyViewer {
                 if(Marshal.ReadInt32(context,16)<required)throw new ByteArrayFailure("ArgumentError","Missing ByteArray argument.");
                 uint argument=operation=="set_position"||operation=="set_length"||operation=="writeByte"?ByteArrayArgument(context,1):0;
                 value=ByteArrayReceiver(context);
-                int length=ByteArrayLength(value);uint position=(uint)Marshal.ReadInt32(value,59);double result=0;
+                bool statics=operation.IndexOf("static_",StringComparison.Ordinal)>=0;
+                int length=statics?0:ByteArrayLength(value);uint position=statics?0:(uint)Marshal.ReadInt32(value,59);double result=0;
                 switch(operation) {
                     case "length":result=length;break;
                     case "position":result=position;break;
@@ -138,7 +143,7 @@ namespace IggyViewer {
                 return RaiseByteArrayError(vm,kind,ex.Message);
             }
         }
-        IntPtr RaiseByteArrayError(IntPtr vm,string kind,string message) {
+        internal IntPtr RaiseByteArrayError(IntPtr vm,string kind,string message) {
             int shift=modernDll?0:24,exception=10528-shift;
             IntPtr value=MovieFunction<ByteArrayNew>(0x44b40,0x47890)(vm,byteArrayErrors[kind]);
             // Root the exception before allocating its message: native strings

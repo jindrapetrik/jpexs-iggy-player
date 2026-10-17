@@ -10,6 +10,7 @@ namespace IggyViewer {
         void RegisterGlobalScripts(byte[] source,int domain=1) {
             foreach(byte[] abc in Container.ReadAbcs(source)) {
                 RuntimeAbc parsed=new RuntimeAbc(abc);
+                foreach(var pair in parsed.AmfSchemas)if(!amfSchemas.ContainsKey(pair.Key))amfSchemas.Add(pair.Key,pair.Value);
                 foreach(KeyValuePair<string,string> pair in parsed.GlobalScripts)
                     if(!globalScripts.ContainsKey(pair.Key))globalScripts.Add(pair.Key,new GlobalScript {Anchor=pair.Value,Domain=domain,Function=parsed.GlobalFunctions.Contains(pair.Key)});
             }

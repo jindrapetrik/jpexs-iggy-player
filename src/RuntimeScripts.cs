@@ -37,6 +37,9 @@ namespace IggyViewer {
         readonly HashSet<int> scriptInitializers=new HashSet<int>();
         readonly Dictionary<int,HashSet<int>> methodMembers=new Dictionary<int,HashSet<int>>();
         HashSet<int> currentMembers;
+        internal readonly Dictionary<string,AmfClassSchema> AmfSchemas=new Dictionary<string,AmfClassSchema>();
+        AmfClassSchema currentAmfSchema;
+        readonly HashSet<int> transientMetadata=new HashSet<int>();
         int Byte(){if(cursor>=bytes.Length)throw new InvalidDataException("Truncated runtime ABC.");return bytes[cursor++];}
         uint Var(){uint v=0;for(int i=0;i<5;i++){int b=Byte();v|=(uint)(b&127)<<(i*7);if((b&128)==0)return v;}throw new InvalidDataException("Invalid ABC integer.");}
         int Count(){uint n=Var();if(n>1000000)throw new InvalidDataException("ABC count limit exceeded.");return (int)n;}
@@ -53,6 +56,13 @@ namespace IggyViewer {
             for(int i=Count();i>0;i--) {
                 int position=cursor,name=Count(),kind=Byte();traitNames.Add(Tuple.Create(position,name,kind&15));
                 if(currentMembers!=null)currentMembers.Add(name);
+                string amfMember=Qualified(name);
+                if(currentAmfSchema!=null&&amfMember!=null&&amfMember.StartsWith("::",StringComparison.Ordinal)) {
+                    string member=amfMember.Substring(2);
+                    if((kind&15)==0)currentAmfSchema.Variables.Add(member);
+                    if((kind&15)==2)currentAmfSchema.Getters.Add(member);
+                    if((kind&15)==3)currentAmfSchema.Setters.Add(member);
+                }
                 if(global){globalTraits.Add(position);string qualified=Qualified(name);if(qualified!=null)Definitions.Add(qualified);}
                 switch(kind&15) {
                     case 0:case 6:Var();Var();if(Var()!=0)Byte();break;
@@ -60,7 +70,10 @@ namespace IggyViewer {
                     case 4:Var();Var();break;
                     default:throw new InvalidDataException("Unknown ABC trait.");
                 }
-                if((kind&64)!=0)for(int n=Count();n>0;n--)Var();
+                if((kind&64)!=0)for(int n=Count();n>0;n--) {
+                    int attribute=Count();
+                    if(currentAmfSchema!=null&&amfMember!=null&&amfMember.StartsWith("::",StringComparison.Ordinal)&&transientMetadata.Contains(attribute))currentAmfSchema.Transient.Add(amfMember.Substring(2));
+                }
             }
         }
         public RuntimeAbc(byte[] data) {
@@ -97,14 +110,18 @@ namespace IggyViewer {
                 if((flags&128)!=0)for(int i=0;i<parameters;i++)Var();
             }
             methodsEnd=cursor;
-            for(int n=Count();n>0;n--){Var();int pairs=Count();for(int i=0;i<pairs*2;i++)Var();}
+            int metadataCount=Count();
+            for(int n=0;n<metadataCount;n++){int name=Count();if(name<strings.Count&&strings[name]=="Transient")transientMetadata.Add(n);int pairs=Count();for(int i=0;i<pairs*2;i++)Var();}
             classCountAt=cursor;int classes=Count();classCount=classes;instancesStart=cursor;
             List<HashSet<int>> members=new List<HashSet<int>>();
             for(int n=classes;n>0;n--) {
                 currentMembers=new HashSet<int>();members.Add(currentMembers);
-                string q=Qualified(Count());if(q!=null){Definitions.Add(q);Classes.Add(q);}Var();int flags=Byte();if((flags&8)!=0)Var();
-                for(int i=Count();i>0;i--)Var();int initializer=Count();methodMembers[initializer]=currentMembers;if(q!=null)constructors[q]=initializer;Traits();
+                string q=Qualified(Count());if(q!=null){Definitions.Add(q);Classes.Add(q);}string parent=Qualified(Count());int flags=Byte();if((flags&8)!=0)Var();
+                currentAmfSchema=new AmfClassSchema {Name=q,Parent=parent,Dynamic=(flags&1)==0};if(q!=null)AmfSchemas[q]=currentAmfSchema;
+                for(int i=Count();i>0;i--)if(Qualified(Count())=="flash.utils::IExternalizable")currentAmfSchema.External=true;
+                int initializer=Count();methodMembers[initializer]=currentMembers;if(q!=null)constructors[q]=initializer;Traits();
             }
+            currentAmfSchema=null;
             classInfoStart=cursor;
             for(int i=0;i<classes;i++){currentMembers=members[i];int initializer=Count();methodMembers[initializer]=currentMembers;Traits();}
             currentMembers=null;
@@ -174,6 +191,9 @@ namespace IggyViewer {
                 if(loader&&q=="flash.system::LoaderContext")changes.Add(i,"HostLoaderContext");
                 if(loader&&q=="flash.utils::Endian")changes.Add(i,"HostEndian");
                 if(loader&&q=="flash.utils::CompressionAlgorithm")changes.Add(i,"HostCompressionAlgorithm");
+                if(loader&&q=="flash.net::ObjectEncoding")changes.Add(i,"HostObjectEncoding");
+                if(loader&&q=="flash.net::registerClassAlias")changes.Add(i,"HostRegisterClassAlias");
+                if(loader&&q=="flash.net::getClassByAlias")changes.Add(i,"HostGetClassByAlias");
                 if(loader&&!domainsOnly&&q=="flash.utils::getDefinitionByName")changes.Add(i,"HostGetDefinitionByName");
                 if(loader&&!domainsOnly&&q=="flash.utils::getQualifiedClassName")changes.Add(i,"HostGetQualifiedClassName");
                 if(loader&&!domainsOnly&&q=="flash.utils::getQualifiedSuperclassName")changes.Add(i,"HostGetQualifiedSuperclassName");
@@ -223,6 +243,7 @@ namespace IggyViewer {
             loader|=references.Contains("flash.utils::getDefinitionByName");
             loader|=references.Contains("flash.utils::ByteArray");
             loader|=references.Contains("flash.utils::Endian")||references.Contains("flash.utils::CompressionAlgorithm");
+            loader|=references.Contains("flash.net::ObjectEncoding")||references.Contains("flash.net::registerClassAlias")||references.Contains("flash.net::getClassByAlias");
             foreach(string timer in new string[]{"setInterval","setTimeout","clearInterval","clearTimeout"})if(references.Contains("flash.utils::"+timer)&&!definitions.Contains("flash.utils::"+timer))timers=true;
             shared|=loader&&!definitions.Contains("flash.net::SharedObject");
             fileList=references.Contains("flash.net::FileReferenceList")&&!definitions.Contains("flash.net::FileReferenceList");
@@ -234,6 +255,8 @@ namespace IggyViewer {
             if(definitions.Contains("com.jpexs.iggy.runtime::HostTimers")||definitions.Contains("com.jpexs.iggy.runtime::HostTimerTask"))throw new InvalidDataException("Movie conflicts with the host timer namespace.");
             foreach(string name in new string[]{"flash.utils::Endian","flash.utils::CompressionAlgorithm","com.jpexs.iggy.runtime::HostEndian","com.jpexs.iggy.runtime::HostCompressionAlgorithm"})
                 if(definitions.Contains(name))throw new InvalidDataException("Movie conflicts with the host ByteArray namespace.");
+            foreach(string name in new string[]{"flash.net::ObjectEncoding","flash.net::registerClassAlias","flash.net::getClassByAlias","com.jpexs.iggy.runtime::HostObjectEncoding","com.jpexs.iggy.runtime::HostAmf","com.jpexs.iggy.runtime::HostAmfRequest","com.jpexs.iggy.runtime::HostAmfAliases","com.jpexs.iggy.runtime::HostRegisterClassAlias","com.jpexs.iggy.runtime::HostGetClassByAlias"})
+                if(definitions.Contains(name))throw new InvalidDataException("Movie conflicts with the host AMF namespace.");
             foreach(string name in new string[]{"flash.system::ApplicationDomain","flash.system::LoaderContext","com.jpexs.iggy.runtime::HostDefinitionRequest","com.jpexs.iggy.runtime::HostBytesRequest","com.jpexs.iggy.runtime::HostDomainBinding","com.jpexs.iggy.runtime::HostDomainFactory","com.jpexs.iggy.runtime::HostDomainNames","com.jpexs.iggy.runtime::HostApplicationDomain","com.jpexs.iggy.runtime::HostLoaderContext","com.jpexs.iggy.runtime::HostGetDefinitionByName","com.jpexs.iggy.runtime::HostGetQualifiedClassName","com.jpexs.iggy.runtime::HostGetQualifiedSuperclassName"})
                 if(definitions.Contains(name))throw new InvalidDataException("Movie conflicts with the host application domain namespace.");
         }

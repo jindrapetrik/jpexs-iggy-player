@@ -5,6 +5,7 @@ package com.jpexs.iggy.runtime {
             if (name == "com.jpexs.iggy.runtime::HostLoaderContext") return "flash.system::LoaderContext";
             if (name == "com.jpexs.iggy.runtime::HostEndian") return "flash.utils::Endian";
             if (name == "com.jpexs.iggy.runtime::HostCompressionAlgorithm") return "flash.utils::CompressionAlgorithm";
+            if (name == "com.jpexs.iggy.runtime::HostObjectEncoding") return "flash.net::ObjectEncoding";
             var prefix:String = "com.jpexs.iggy.domain.d";
             if (name.indexOf(prefix) != 0) return name;
             var dot:int = name.indexOf(".", prefix.length);

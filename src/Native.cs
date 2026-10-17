@@ -625,7 +625,7 @@ namespace IggyViewer {
             ReleaseMovieDefinitions();
             if(imageLoader!=null){imageLoader.Dispose();imageLoader=null;}
             if(Activity!=null){Activity.KeepAlive();Activity=null;}
-            GC.KeepAlive(byteArrayFinalizer);ReleaseByteArrays();
+            GC.KeepAlive(byteArrayFinalizer);GC.KeepAlive(byteArrayConstructor);ReleaseByteArrays();
             GC.KeepAlive(soundCompatibility);soundCompatibility=null;
             GC.KeepAlive(loaderInfo);loaderInfo=null;
             GC.KeepAlive(runtimeCompatibility);runtimeCompatibility=null;

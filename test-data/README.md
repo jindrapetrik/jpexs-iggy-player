@@ -191,6 +191,28 @@ java -cp $classpath CreateByteArrayFixture test-data/bytearray
 The main AS3 source is bytearray/ByteArrayMain.as. Run --self-test-bytearray
 test-data/bytearray.iggy test-output/bytearray, or use test.ps1 for regression.
 
+## ByteArray objects
+
+amf.swf/amf.iggy exercise AMF0 and AMF3 serialization with exact wire vectors,
+integer boundaries, special doubles and UTF-8 (including NUL and supplementary
+characters). They cover cyclic/shared references, associative arrays, dates,
+nested ByteArrays, typed classes, inherited fields, accessors, [Transient],
+alias remapping and fallback for unknown aliases. Malformed input, resource
+limits, atomic failed writes, encoding defaults, moving GC and reopen are checked.
+Two loaded child movies import a typed class and verify alias isolation between
+inherited and isolated application domains. The sources are under amf/.
+
+Regenerate with the existing fixture helper and a compatible FFDec library:
+
+~~~powershell
+$classpath = 'tools;PATH_TO_FFDEC_JAR;PATH_TO_FFDEC_LIB/*'
+javac -encoding UTF-8 -cp $classpath tools/CreateBytesLoaderFixture.java tools/CreateAmfFixture.java
+java -cp $classpath CreateAmfFixture test-data/amf
+~~~
+
+Run --self-test-amf test-data/amf.iggy test-output/amf, or use test.ps1.
+The regression suite also runs it with OpenGL when -TestOpenGl is selected.
+
 ## Filters
 
 The filters.swf and filters.iggy fixtures exercise translucent color

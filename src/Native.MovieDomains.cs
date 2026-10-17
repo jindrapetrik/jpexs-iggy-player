@@ -46,6 +46,9 @@ namespace IggyViewer {
                 if(name=="flash.system::LoaderContext")lookup="com.jpexs.iggy.runtime::HostLoaderContext";
                 if(name=="flash.utils::Endian")lookup="com.jpexs.iggy.runtime::HostEndian";
                 if(name=="flash.utils::CompressionAlgorithm")lookup="com.jpexs.iggy.runtime::HostCompressionAlgorithm";
+                if(name=="flash.net::ObjectEncoding")lookup="com.jpexs.iggy.runtime::HostObjectEncoding";
+                if(name=="flash.net::registerClassAlias")lookup="com.jpexs.iggy.runtime::HostRegisterClassAlias";
+                if(name=="flash.net::getClassByAlias")lookup="com.jpexs.iggy.runtime::HostGetClassByAlias";
                 if(name=="flash.display::Loader")lookup="com.jpexs.iggy.runtime::HostLoader";
                 if(name=="flash.net::URLRequest")lookup="com.jpexs.iggy.runtime::HostURLRequest";
                 IntPtr metadata=MovieLookup(vm,lookup);
