@@ -8,6 +8,13 @@ OpenGL rendering is selected automatically when a compatible driver is
 available; otherwise the player uses the software renderer.
 Playback does not require FFDec, Java or conversion to SWF.
 
+## License
+
+The player source code is licensed under the [MIT License](LICENSE.md).
+The BC7 decoder retains its original MIT copyright and license notice in
+[src/Bc7Decoder.cs](src/Bc7Decoder.cs). The separately supplied proprietary
+Iggy runtime DLLs are not covered by this license.
+
 ## Requirements and DLL setup
 
 Windows x64 and .NET Framework 4.x are required. Place the supported DLL
