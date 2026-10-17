@@ -32,6 +32,7 @@ Invoke-PlayerTest @('--self-test-zero-scale', (Join-Path $PSScriptRoot 'test-dat
 Invoke-PlayerTest @('--self-test-loaderinfo', (Join-Path $PSScriptRoot 'test-data/loaderinfo.iggy'), (Join-Path $output 'loaderinfo')) 'loaderinfo.log'
 Invoke-PlayerTest @('--self-test-runtime', (Join-Path $PSScriptRoot 'test-data/runtime.iggy'), (Join-Path $output 'runtime')) 'runtime.log'
 Invoke-PlayerTest @('--renderer', 'software', '--self-test-loader', (Join-Path $PSScriptRoot 'test-data/loader.iggy'), (Join-Path $output 'loader')) 'loader.log'
+Invoke-PlayerTest @('--renderer', 'software', '--self-test-loader-bytes', (Join-Path $PSScriptRoot 'test-data/bytes-loader.iggy'), (Join-Path $output 'bytes-loader')) 'bytes-loader.log'
 Invoke-PlayerTest @('--renderer', 'software', '--self-test-movie-loader', (Join-Path $PSScriptRoot 'test-data/movie-loader.iggy'), (Join-Path $output 'movie-loader')) 'movie-loader.log'
 Invoke-PlayerTest @('--self-test-domains', (Join-Path $PSScriptRoot 'test-data/domains.iggy'), (Join-Path $output 'domains')) 'domains.log'
 Invoke-PlayerTest @('--renderer', 'software', '--self-test-unload', (Join-Path $PSScriptRoot 'test-data/movie-loader.iggy'), (Join-Path $output 'unload')) 'unload.log'
@@ -39,6 +40,7 @@ Invoke-PlayerTest @('--self-test-fixup-partitions', $movie, (Join-Path $output '
 if ($TestOpenGl) {
     Invoke-PlayerTest @('--self-test-opengl', $movie, (Join-Path $output 'opengl')) 'opengl.log'
     Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-loader', (Join-Path $PSScriptRoot 'test-data/loader.iggy'), (Join-Path $output 'loader-opengl')) 'loader-opengl.log'
+    Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-loader-bytes', (Join-Path $PSScriptRoot 'test-data/bytes-loader.iggy'), (Join-Path $output 'bytes-loader-opengl')) 'bytes-loader-opengl.log'
     Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-movie-loader', (Join-Path $PSScriptRoot 'test-data/movie-loader.iggy'), (Join-Path $output 'movie-loader-opengl')) 'movie-loader-opengl.log'
     Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-unload', (Join-Path $PSScriptRoot 'test-data/movie-loader.iggy'), (Join-Path $output 'unload-opengl')) 'unload-opengl.log'
 }

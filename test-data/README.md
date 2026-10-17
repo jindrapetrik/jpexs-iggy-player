@@ -147,6 +147,28 @@ Object, so an undefined value becomes null; hasDefinition must still return true
 A side-effect counter checks that hasDefinition leaves a lazy global uninitialized
 and getDefinition initializes it only once, preserving its object through GC.
 
+## Loader byte arrays
+
+bytes-loader.swf/bytes-loader.iggy embed PNG, JPEG and compiled IGGY movies as
+DefineBinaryData ByteArray subclasses. The test also constructs writable arrays,
+checks read/write copying and embedded copy-on-write, and mutates the input after
+loadBytes returns to verify snapshot ownership. It covers domains and static
+fields, constructor LoaderInfo and parameters, imported timeline resources,
+relative nested image loads, event order, invalid/raw SWF/32-bit input, both code
+execution flags, close, unload during INIT, unloadAndStop, GC and repeated opens.
+The same test runs with software and OpenGL rendering.
+
+Regenerate the loader image and domains fixtures first, then run:
+
+~~~powershell
+$classpath = 'PATH_TO_FFDEC_JAR;PATH_TO_FFDEC_LIB/*'
+javac -encoding UTF-8 -cp $classpath tools/CreateBytesLoaderFixture.java
+java -cp "tools;$classpath" CreateBytesLoaderFixture test-data/bytes-loader
+~~~
+
+The files under bytes-loader/scripts are the fixture's AS3 sources. The child
+container is embedded in the parent; no memory-load temporary files are written.
+
 ## Filters
 
 The filters.swf and filters.iggy fixtures exercise translucent color

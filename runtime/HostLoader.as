@@ -11,6 +11,7 @@ package com.jpexs.iggy.runtime {
     import flash.system.LoaderContext;
     import flash.system.ApplicationDomain;
     import flash.utils.Timer;
+    import flash.utils.ByteArray;
     public class HostLoader extends Sprite {
         private var info:HostLoaderInfo;
         private var pending:Timer;
@@ -24,12 +25,20 @@ package com.jpexs.iggy.runtime {
         }
         public function load(request:HostURLRequest, context:LoaderContext = null):void {
             if (request == null) throw new TypeError("Loader request is null");
+            begin(request.url, null, context);
+        }
+        public function loadBytes(bytes:ByteArray, context:LoaderContext = null):void {
+            if (bytes == null) throw new TypeError("Loader bytes are null");
+            if (bytes.length == 0) throw new ArgumentError("Loader bytes are empty");
+            begin(null, bytes, context);
+        }
+        private function begin(url:String, bytes:ByteArray, context:LoaderContext):void {
             if (context != null && context.securityDomain != null) throw new SecurityError("SecurityDomain is unavailable for local loading");
             if (context != null && context.requestedContentParent != null) throw new ArgumentError("requestedContentParent is unavailable for local loading");
             var serial:uint = generation + 1;
             unload();
             if (serial != generation) return;
-            info.requestUrl = request.url;
+            info.requestUrl = url;
             info.requestBytes = 0;
             info.imageWidth = 0;
             info.imageHeight = 0;
@@ -38,7 +47,8 @@ package com.jpexs.iggy.runtime {
             info.requestParameters = context == null || context.parameters == null ? {} : context.parameters;
             allowCode = context == null || context.allowCodeImport;
             opened = false;
-            token = String(ExternalInterface.call("__iggy_image_start", request.url, info.loaderURL, String(info.requestDomain.__iggyId), allowCode ? "yes" : "no"));
+            if (bytes == null) token = String(ExternalInterface.call("__iggy_image_start", url, info.loaderURL, String(info.requestDomain.__iggyId), allowCode ? "yes" : "no"));
+            else token = new HostBytesRequest(bytes, info.loaderURL, info.requestDomain.__iggyId, allowCode && (context == null || context.allowLoadBytesCodeExecution)).token;
             pending = new Timer(10);
             pending.addEventListener(TimerEvent.TIMER, poll);
             pending.start();

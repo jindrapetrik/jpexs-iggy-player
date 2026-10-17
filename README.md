@@ -153,6 +153,22 @@ are not converted during playback. Relative URLs use the main movie's directory
 or the loaded movie's directory for loaders constructed in its constructor or
 attached below its root. Detached loaders created later fall back to the main
 movie's directory; use an absolute URL in that case.
+loadBytes(ByteArray, LoaderContext) accepts PNG, JPEG and compiled 64-bit IGGY
+data. It snapshots the entire array, regardless of position, before returning;
+later writes to the caller's array do not affect decoding. Embedded
+DefineBinaryData ByteArray subclasses and writable arrays are supported.
+ByteArray compatibility implements length, position, bytesAvailable, readByte,
+readUnsignedByte, writeByte, readBytes and writeBytes; the remaining binary,
+UTF, object serialization and compression methods are still native stubs.
+Bounds failures currently raise RangeError, including reads past the end.
+Writable buffers detach from embedded data on the first write and are released
+by native collection or movie shutdown. Memory-loaded movies have a synthetic
+file URL based on their content hash in the loading movie's directory, which
+also supplies the base for relative imports and resource requests. They use the
+same application domains and lifecycle as file loads. Either allowCodeImport=false
+or allowLoadBytesCodeExecution=false rejects IGGY byte loads; images remain
+allowed. Pending byte snapshots are limited to 256 MiB per movie, with a maximum
+of 256 MiB for each ByteArray. Raw SWF bytes require conversion before loading.
 OPEN, PROGRESS, INIT and COMPLETE are dispatched on contentLoaderInfo, in that
 order; missing, invalid and unsupported resources dispatch IOErrorEvent.
 close() cancels pending work without removing loaded content. unload() and
@@ -294,6 +310,7 @@ IggyPlayer.exe --self-test-runtime test-data/runtime.iggy output-directory
 IggyPlayer.exe --self-test-loader test-data/loader.iggy output-directory
 IggyPlayer.exe --self-test-movie-loader test-data/movie-loader.iggy output-directory
 IggyPlayer.exe --self-test-domains test-data/domains.iggy output-directory
+IggyPlayer.exe --self-test-loader-bytes test-data/bytes-loader.iggy output-directory
 IggyPlayer.exe --self-test-unload test-data/movie-loader.iggy output-directory
 IggyPlayer.exe --self-test-unload-audio test-data/movie-loader.iggy output-directory
 IggyPlayer.exe --self-test-audio test-data/audio.iggy output-directory

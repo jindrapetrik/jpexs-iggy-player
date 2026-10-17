@@ -9,7 +9,7 @@ using System.Threading;
 namespace IggyViewer {
     // File decoding runs off the movie thread. Only the constructor bridge
     // touches VM objects; its private fifth argument is an opaque job token.
-    internal unsafe sealed class ImageLoader : IDisposable {
+    internal unsafe sealed partial class ImageLoader : IDisposable {
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr Builtin(IntPtr context);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr Reference(IntPtr player,IntPtr value,int weak);
         sealed class Pixels {
@@ -35,9 +35,10 @@ namespace IggyViewer {
         sealed class Job {
             internal MovieActivity.Scope Owner;
             internal string Token,Status="pending",Url;
-            internal int Width,Height,Bytes;
+            internal int Width,Height,Bytes,InputBytes;
             internal int[] Pixels;
             internal byte[] MovieBytes;
+            internal byte[] SourceBytes;
             internal Native.LoadedMovie Movie;
             internal string BaseFile,Path,ResolvedUrl;
             internal bool Linking,Opened;
@@ -77,6 +78,7 @@ namespace IggyViewer {
                 classes[Marshal.PtrToStringAnsi(Marshal.ReadIntPtr(entry))]=Marshal.ReadIntPtr(entry,16);
             }
             native.InitializeMovieDomains(classes);
+            native.InstallByteArrays(classes);
             // These error subclasses have native stub constructors.
             foreach(string name in new string[]{"ReferenceError","SecurityError","ArgumentError","TypeError"})if(classes.ContainsKey(name)&&classes.ContainsKey("Error"))
                 Marshal.WriteIntPtr(classes[name],56,Marshal.ReadIntPtr(classes["Error"],56));
@@ -156,13 +158,14 @@ namespace IggyViewer {
                 if(operation=="__iggy_image_opened"){current.Opened=true;return "ok";}
                 if(operation=="__iggy_image_poll")return current.Status;
                 if(operation=="__iggy_image_finish") {jobs.Remove(value);current.Pixels=null;return current.Uploaded?"ok":"error|Cannot create loaded content";}
-                if(operation=="__iggy_image_cancel") {current.Cancelled=true;current.Pixels=null;current.MovieBytes=null;jobs.Remove(value);return "ok";}
+                if(operation=="__iggy_image_cancel") {current.Cancelled=true;current.Pixels=null;current.MovieBytes=null;current.SourceBytes=null;jobs.Remove(value);return "ok";}
                 return "error|Unknown image operation";
             }
         }
         void Decode(Job job) {
             try {
-                lock(sync)if(closed||job.Cancelled)return;
+                byte[] bytes;
+                lock(sync){if(closed||job.Cancelled)return;bytes=job.SourceBytes;job.SourceBytes=null;}
                 Uri uri;
                 int separator=job.Url.IndexOfAny(new char[]{'?','#'});
                 string location=separator<0?job.Url:job.Url.Substring(0,separator);
@@ -173,11 +176,12 @@ namespace IggyViewer {
                 string path=uri.LocalPath;
                 if(Path.GetExtension(path).Equals(".swf",StringComparison.OrdinalIgnoreCase)&&File.Exists(Path.ChangeExtension(path,".iggy")))path=Path.ChangeExtension(path,".iggy");
                 job.Path=path;job.ResolvedUrl=uri.AbsoluteUri+(separator<0?"":job.Url.Substring(separator));
-                byte[] bytes;
-                using(FileStream input=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read)) {
-                    if(input.Length>256*1024*1024)throw new IOException("Loaded file exceeds 256 MiB");
-                    bytes=new byte[(int)input.Length];int offset=0;
-                    while(offset<bytes.Length){int size=input.Read(bytes,offset,bytes.Length-offset);if(size==0)throw new EndOfStreamException();offset+=size;}
+                if(bytes==null) {
+                    using(FileStream input=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read)) {
+                        if(input.Length>256*1024*1024)throw new IOException("Loaded file exceeds 256 MiB");
+                        bytes=new byte[(int)input.Length];int offset=0;
+                        while(offset<bytes.Length){int size=input.Read(bytes,offset,bytes.Length-offset);if(size==0)throw new EndOfStreamException();offset+=size;}
+                    }
                 }
                 if(bytes.Length>=32&&BitConverter.ToUInt32(bytes,0)==0xed0a6749) {
                     if(!job.AllowCode)throw new IOException("LoaderContext.allowCodeImport is false");
@@ -269,6 +273,9 @@ namespace IggyViewer {
             IntPtr result=originalInfoConstructor(context);
             if(Marshal.ReadInt32(context,16)>0) {
                 IntPtr arguments=Marshal.ReadIntPtr(context,24),info=Marshal.ReadIntPtr(arguments),owner=Marshal.ReadIntPtr(arguments,8);
+                if(ReadText(owner)=="__iggy_bytes"&&Marshal.ReadInt32(context,16)>=5) {
+                    StartBytes(info,arguments);return result;
+                }
                 if(ReadText(owner)=="__iggy_bind_domain"&&Marshal.ReadInt32(context,16)>=3) {
                     int domain;
                     if(int.TryParse(ReadText(Marshal.ReadIntPtr(arguments,24)),out domain)&&native.ValidMovieDomain(domain)) {
@@ -353,6 +360,10 @@ namespace IggyViewer {
         }
         IntPtr GetContent(IntPtr context) {
             IntPtr receiver=Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,24));
+            for(int i=0;i<byteRequests.Count;i++)if(Marshal.ReadIntPtr(byteRequests[i].Request)==receiver) {
+                ByteRequest request=byteRequests[i];byteRequests.RemoveAt(i);freeReference(native.Player,request.Request);
+                return native.ReturnMovieString(context,request.Token);
+            }
             for(int i=0;i<definitions.Count;i++)if(Marshal.ReadIntPtr(definitions[i].Request)==receiver) {
                 DefinitionTicket definition=definitions[i];definitions.RemoveAt(i);freeReference(native.Player,definition.Request);
                 IntPtr value;
@@ -388,6 +399,7 @@ namespace IggyViewer {
             return originalLoaderGetter(context);
         }
         internal void Prune() {
+            PruneByteRequests();
             for(int i=definitions.Count-1;i>=0;i--)if(Marshal.ReadIntPtr(definitions[i].Request).ToInt64()==7){freeReference(native.Player,definitions[i].Request);definitions.RemoveAt(i);}
             for(int i=tickets.Count-1;i>=0;i--)if(Marshal.ReadIntPtr(tickets[i].Request).ToInt64()==7){freeReference(native.Player,tickets[i].Request);freeReference(native.Player,tickets[i].Info);tickets.RemoveAt(i);}
             for(int i=roots.Count-1;i>=0;i--)if(Marshal.ReadIntPtr(roots[i].Root).ToInt64()==7){freeReference(native.Player,roots[i].Root);freeReference(native.Player,roots[i].Info);roots.RemoveAt(i);}
@@ -409,9 +421,10 @@ namespace IggyViewer {
             }
         }
         internal void CancelAll() {
+            foreach(ByteRequest request in byteRequests)freeReference(native.Player,request.Request);byteRequests.Clear();
             foreach(IntPtr reference in domainObjects.Values)freeReference(native.Player,reference);domainObjects.Clear();
             foreach(DefinitionTicket definition in definitions)freeReference(native.Player,definition.Request);definitions.Clear();
-            lock(sync){closed=true;foreach(Job job in jobs.Values){job.Cancelled=true;job.Pixels=null;job.MovieBytes=null;}jobs.Clear();}
+            lock(sync){closed=true;foreach(Job job in jobs.Values){job.Cancelled=true;job.Pixels=null;job.MovieBytes=null;job.SourceBytes=null;}jobs.Clear();}
             foreach(Pixels pixels in bitmaps.Values){foreach(IntPtr owner in pixels.Owners)freeReference(native.Player,owner);pixels.Owners.Clear();}
             foreach(InfoOwner info in infos){freeReference(native.Player,info.Info);freeReference(native.Player,info.Owner);}infos.Clear();
             foreach(MovieTicket ticket in tickets){freeReference(native.Player,ticket.Request);freeReference(native.Player,ticket.Info);}tickets.Clear();
@@ -419,7 +432,7 @@ namespace IggyViewer {
         }
         internal void CancelScope(MovieActivity.Scope scope) {
             lock(sync)foreach(Job job in new List<Job>(jobs.Values))if(MovieActivity.Within(job.Owner,scope)) {
-                job.Cancelled=true;job.Pixels=null;job.MovieBytes=null;jobs.Remove(job.Token);
+                job.Cancelled=true;job.Pixels=null;job.MovieBytes=null;job.SourceBytes=null;jobs.Remove(job.Token);
             }
         }
         public void Dispose() {
