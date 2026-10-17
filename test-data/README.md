@@ -139,6 +139,13 @@ classes in the main domain rather than the system domain.
 Main and nested imported static initializers must observe the main domain before
 the document constructor. Counters and mutated static fields verify initialization
 occurs once, survives reflection and GC, and starts fresh when the movie reopens.
+The same fixtures cover global functions, live variables, constants and namespaces
+in main, imported, shared and isolated domains. They check parent precedence,
+first-definition reuse, function callback domains and stable reflected references,
+and definitions with null, undefined, zero and false values. getDefinition returns
+Object, so an undefined value becomes null; hasDefinition must still return true.
+A side-effect counter checks that hasDefinition leaves a lazy global uninitialized
+and getDefinition initializes it only once, preserving its object through GC.
 
 ## Filters
 

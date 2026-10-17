@@ -5,7 +5,9 @@ using System.Runtime.InteropServices;
 
 namespace IggyViewer {
     internal unsafe sealed partial class Native {
-        sealed class DomainDefinition {internal IntPtr Metadata,Value;internal string Name,LinkName;}
+        sealed class DomainDefinition {internal IntPtr Metadata,Value,Function;internal string Name,LinkName;internal bool Global;internal int Domain;}
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr MovieGlobal(IntPtr vm,IntPtr name);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr MovieProperty(IntPtr vm,IntPtr owner,IntPtr name);
         sealed class MovieDomain {
             internal int Parent;
             internal readonly Dictionary<string,DomainDefinition> Definitions=new Dictionary<string,DomainDefinition>(StringComparer.Ordinal);
@@ -15,11 +17,11 @@ namespace IggyViewer {
         internal int CurrentMovieDomain {get{return ExecutionDomain;}}
         static string DomainName(string name) {return name.StartsWith("::",StringComparison.Ordinal)?name.Substring(2):name.Replace("::",".");}
         static string ClassQName(string name) {int split=name.LastIndexOf('.');return split<0?"::"+name:name.Substring(0,split)+"::"+name.Substring(split+1);}
-        void AddDomainDefinition(int domain,string name,IntPtr metadata,string linkName=null,bool deferred=false) {
+        void AddDomainDefinition(int domain,string name,IntPtr metadata,string linkName=null,bool deferred=false,bool global=false) {
             string key=DomainName(name);
-            if((metadata==IntPtr.Zero&&!deferred)||movieDomains[domain].Definitions.ContainsKey(key))return;
+            if((metadata==IntPtr.Zero&&!deferred&&!global)||movieDomains[domain].Definitions.ContainsKey(key))return;
             IntPtr reference=metadata==IntPtr.Zero?IntPtr.Zero:KeepMovieClass(metadata);
-            movieDomains[domain].Definitions.Add(key,new DomainDefinition {Metadata=metadata,Value=reference,Name=name.StartsWith("::",StringComparison.Ordinal)?name.Substring(2):name,LinkName=linkName??name});
+            movieDomains[domain].Definitions.Add(key,new DomainDefinition {Metadata=metadata,Value=reference,Name=name.StartsWith("::",StringComparison.Ordinal)?name.Substring(2):name,LinkName=linkName??name,Global=global,Domain=domain});
         }
         internal void InitializeMovieDomains(Dictionary<string,IntPtr> builtins) {
             movieDomains.Add(new MovieDomain {Parent=-1});
@@ -33,11 +35,12 @@ namespace IggyViewer {
                 AddDomainDefinition(1,name,metadata,deferred:true);
                 if(metadata!=IntPtr.Zero){user.Add(metadata);if(Activity!=null)Activity.PatchClass(metadata,1);}
             }
+            foreach(string name in runtimeScripts.Globals)AddDomainDefinition(1,name,IntPtr.Zero,global:true);
             // Built-ins and injected compatibility classes form the system domain.
             HashSet<string> builtinNames=new HashSet<string>(runtimeScripts.ClassReferences,StringComparer.Ordinal);
             foreach(string name in new string[]{"::Object","::String","::Array","::Class","flash.display::Sprite","flash.display::MovieClip","flash.system::ApplicationDomain","flash.system::LoaderContext"})builtinNames.Add(name);
             foreach(string name in builtinNames) {
-                if(runtimeScripts.Classes.Contains(name))continue;
+                if(runtimeScripts.Definitions.Contains(name))continue;
                 string lookup=name;
                 if(name=="flash.system::ApplicationDomain")lookup="com.jpexs.iggy.runtime::HostApplicationDomain";
                 if(name=="flash.system::LoaderContext")lookup="com.jpexs.iggy.runtime::HostLoaderContext";
@@ -55,6 +58,10 @@ namespace IggyViewer {
                 if(parts.Length!=2||!int.TryParse(parts[0],out parent)||!ValidMovieDomain(parent)||!int.TryParse(parts[1],out existing))return "error|Invalid application domain";
                 if(existing>=0)return ValidMovieDomain(existing)?existing.ToString():"error|Invalid application domain";
                 operation="__iggy_image_domain_create";value=parent.ToString();
+            }
+            if(operation=="__iggy_image_domain_has") {
+                int separator=value.IndexOf('|'),target;
+                return separator>=0&&int.TryParse(value.Substring(0,separator),out target)&&FindDomainDefinition(target,value.Substring(separator+1))!=null?"true":"false";
             }
             int domain;
             if(!int.TryParse(value,out domain)||domain<0||domain>=movieDomains.Count)return "error|Invalid application domain";
@@ -83,7 +90,7 @@ namespace IggyViewer {
         Dictionary<string,string> DomainClassNames(int domain,IEnumerable<byte[]> sources) {
             Dictionary<string,string> names=new Dictionary<string,string>(StringComparer.Ordinal);
             VisibleDomainClasses(domain,names,new List<DomainDefinition>());
-            foreach(byte[] source in sources)foreach(byte[] abc in Container.ReadAbcs(source))foreach(string name in new RuntimeAbc(abc).Classes) {
+            foreach(byte[] source in sources)foreach(byte[] abc in Container.ReadAbcs(source))foreach(string name in new RuntimeAbc(abc).Definitions) {
                 if(names.ContainsKey(name))continue;
                 int split=name.LastIndexOf("::",StringComparison.Ordinal);string package=name.Substring(0,split);
                 names.Add(name,"com.jpexs.iggy.domain.d"+domain+(package.Length==0?"":"."+package)+name.Substring(split));
@@ -114,10 +121,10 @@ namespace IggyViewer {
             DomainDefinition inherited=current.Parent<0?null:FindDomainDefinition(current.Parent,name);
             if(inherited!=null)return inherited;
             DomainDefinition local;if(!current.Definitions.TryGetValue(DomainName(name),out local))return null;
-            ResolveDomainDefinition(local);return local.Metadata==IntPtr.Zero?null:local;
+            ResolveDomainDefinition(local);return local.Global||local.Metadata!=IntPtr.Zero?local:null;
         }
         void ResolveDomainDefinition(DomainDefinition definition) {
-            if(definition.Metadata!=IntPtr.Zero)return;
+            if(definition.Global||definition.Metadata!=IntPtr.Zero)return;
             IntPtr vm=Marshal.ReadIntPtr(Player,modernDll?10560:10480);definition.Metadata=MovieLookup(vm,definition.LinkName);
             if(definition.Metadata==IntPtr.Zero)return;
             definition.Value=KeepMovieClass(definition.Metadata);
@@ -129,14 +136,46 @@ namespace IggyViewer {
                 if(definition.Metadata!=IntPtr.Zero)Activity.PatchClass(definition.Metadata,1);
             }
         }
-        internal IntPtr MovieDomainDefinition(int domain,string name) {
+        internal bool TryMovieDomainDefinition(int domain,string name,out IntPtr value) {
+            value=IntPtr.Zero;
             DomainDefinition definition=FindDomainDefinition(domain,name);
-            if(definition==null)return IntPtr.Zero;
+            if(definition==null)return false;
+            if(definition.Global) {
+                IntPtr vm=Marshal.ReadIntPtr(Player,modernDll?10560:10480),key=MovieName(vm,definition.LinkName,true);
+                if(key.ToInt64()<=1)return false;
+                int previous=ExecutionDomain;ExecutionDomain=definition.Domain;
+                try {
+                    // This resolver balances the active VM stack. The native
+                    // convenience lookup would reset it inside our callback.
+                    IntPtr scope=MovieFunction<MovieGlobal>(0x79990,0x7ff90)(vm,key);
+                    if(scope.ToInt64()==7)return false;
+                    int stackOffset=modernDll?27448:27416;IntPtr stack=Marshal.ReadIntPtr(vm,stackOffset);
+                    Marshal.WriteIntPtr(stack,scope);Marshal.WriteIntPtr(vm,stackOffset,IntPtr.Add(stack,8));
+                    try {
+                        value=MovieFunction<MovieProperty>(0xaf4d0,0xb6b90)(vm,Marshal.ReadIntPtr(stack),key);
+                        if(value.ToInt64()==7)return false;
+                        if((value.ToInt64()&3)==1&&Marshal.ReadByte(IntPtr.Subtract(value,1))==16) {
+                            // Return a bound function rather than letting the
+                            // LoaderInfo bridge bind it to its own receiver.
+                            // Keep repeated reflection of the method stable.
+                            if(definition.Value==IntPtr.Zero||definition.Function!=value) {
+                                IntPtr function=value;
+                                value=MovieFunction<MovieProperty>(0x44880,0x47a50)(vm,Marshal.ReadIntPtr(stack),function);
+                                if(definition.Value!=IntPtr.Zero){Activity.FreeHostReference(definition.Value);movieClassReferences.Remove(definition.Value);}
+                                definition.Function=function;definition.Value=Activity.HostReference(value,0);movieClassReferences.Add(definition.Value);
+                            }
+                            value=Marshal.ReadIntPtr(definition.Value);
+                        }
+                        if(Activity!=null)Activity.PatchGlobal(value,definition.Domain);
+                        return true;
+                    } finally {Marshal.WriteIntPtr(vm,stackOffset,stack);}
+                } finally {ExecutionDomain=previous;}
+            }
             if(definition.Value==IntPtr.Zero) {
                 definition.Value=KeepMovieClass(definition.Metadata);
-                if(definition.Value==IntPtr.Zero)return IntPtr.Zero;
+                if(definition.Value==IntPtr.Zero)return false;
             }
-            return Marshal.ReadIntPtr(definition.Value);
+            value=Marshal.ReadIntPtr(definition.Value);return true;
         }
     }
 }

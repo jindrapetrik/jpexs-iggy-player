@@ -50,9 +50,28 @@ package {
             check(a.domain.getQualifiedDefinitionNames().indexOf("CollisionValue") < 0 && isolated.domain.getQualifiedDefinitionNames().indexOf("CollisionValue") >= 0);
             for each (var loader:Loader in children) {
                 check(loader.content["reflection"] && loader.content["methodDomain"] && loader.content["typed"]);
+                check(loader.content["globals"]);
+                var fn:Function = loader.content["domain"].getDefinition("linklib.globalCurrent") as Function;
+                check(fn() === loader.content["domain"] && fn === loader.content["domain"].getDefinition("linklib.globalCurrent"));
                 check(loader.content["tile"] != null && loader.content["tile"].width == 40);
             }
+            check(a.globalOrdinal == 18 && b.globalOrdinal == 30 && isolated.globalOrdinal == 18);
+            check(first.globalOrdinal == 18 && second.globalOrdinal == 19 && children[5].content.globalOrdinal == 20);
+            check(a.globalParent == 101 && first.globalParent == 101 && second.globalParent == 101 && isolated.globalParent == 201);
+            check(first.domain.getDefinition("linklib.globalLabel") === "blue" && second.domain.getDefinition("linklib.globalLabel") === "blue" && b.domain.getDefinition("linklib.globalLabel") === "red");
+            check(first.domain.getDefinition("linklib.globalCounter") == 20 && a.domain.getDefinition("linklib.globalCounter") == 18);
+            check(!ApplicationDomain.currentDomain.hasDefinition("linklib.globalCounter"));
+            check(shared.getDefinition("linklib.variant1Global") == 51 && shared.getDefinition("linklib.variant2Global") == 52);
+            check(shared.getDefinition("linklib.readMixed")() == 60 && b.domain.getDefinition("linklib.readMixed")() == 61);
         }
-        public function afterGc():void { gcLookup = true; for each (var loader:Loader in children) gcLookup = gcLookup && loader.content["afterGc"](); }
+        public function afterGc():void {
+            gcLookup = true;
+            for each (var loader:Loader in children) {
+                var domain:ApplicationDomain = loader.content["domain"];
+                var fn:Function = domain.getDefinition("linklib.globalCurrent") as Function;
+                gcLookup = gcLookup && loader.content["afterGc"]() && fn() === domain && domain.hasDefinition("linklib.undefinedGlobal");
+            }
+            gcLookup = gcLookup && shared.getDefinition("linklib.globalCounter") == 20;
+        }
     }
 }

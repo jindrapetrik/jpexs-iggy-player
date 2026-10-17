@@ -20,9 +20,20 @@ namespace IggyViewer {
         public readonly HashSet<string> References=new HashSet<string>(StringComparer.Ordinal);
         public readonly HashSet<string> Definitions=new HashSet<string>(StringComparer.Ordinal);
         public readonly HashSet<string> Classes=new HashSet<string>(StringComparer.Ordinal);
+        internal readonly HashSet<string> PublicGlobals=new HashSet<string>(StringComparer.Ordinal);
         readonly Dictionary<string,int> constructors=new Dictionary<string,int>(StringComparer.Ordinal);
         readonly int bodiesStart;
+        readonly int methodsEnd,classCountAt,instancesStart,classInfoStart,scriptsStart,methodCount,classCount;
+        sealed class Script {
+            internal int Initializer,TraitsStart,End;
+            internal string Anchor;
+            internal readonly List<string> Globals=new List<string>();
+        }
+        readonly List<Script> scripts=new List<Script>();
+        internal readonly Dictionary<string,string> GlobalScripts=new Dictionary<string,string>(StringComparer.Ordinal);
+        internal readonly HashSet<string> GlobalFunctions=new HashSet<string>(StringComparer.Ordinal);
         readonly List<Tuple<int,int,int>> traitNames=new List<Tuple<int,int,int>>();
+        readonly HashSet<int> globalTraits=new HashSet<int>();
         readonly HashSet<int> scriptInitializers=new HashSet<int>();
         readonly Dictionary<int,HashSet<int>> methodMembers=new Dictionary<int,HashSet<int>>();
         HashSet<int> currentMembers;
@@ -42,7 +53,7 @@ namespace IggyViewer {
             for(int i=Count();i>0;i--) {
                 int position=cursor,name=Count(),kind=Byte();traitNames.Add(Tuple.Create(position,name,kind&15));
                 if(currentMembers!=null)currentMembers.Add(name);
-                if(global){string qualified=Qualified(name);if(qualified!=null)Definitions.Add(qualified);}
+                if(global){globalTraits.Add(position);string qualified=Qualified(name);if(qualified!=null)Definitions.Add(qualified);}
                 switch(kind&15) {
                     case 0:case 6:Var();Var();if(Var()!=0)Byte();break;
                     case 1:case 2:case 3:case 5:Var();int method=Count();if(currentMembers!=null)methodMembers[method]=currentMembers;break;
@@ -79,22 +90,38 @@ namespace IggyViewer {
             }
             tail=cursor;
             for(int i=1;i<names.Count;i++){string q=Qualified(i);if(q!=null)References.Add(q);}
-            for(int n=Count();n>0;n--) {
+            methodCount=Count();
+            for(int n=methodCount;n>0;n--) {
                 int parameters=Count();Var();for(int i=0;i<parameters;i++)Var();Var();int flags=Byte();
                 if((flags&8)!=0)for(int i=Count();i>0;i--){Var();Byte();}
                 if((flags&128)!=0)for(int i=0;i<parameters;i++)Var();
             }
+            methodsEnd=cursor;
             for(int n=Count();n>0;n--){Var();int pairs=Count();for(int i=0;i<pairs*2;i++)Var();}
-            int classes=Count();
+            classCountAt=cursor;int classes=Count();classCount=classes;instancesStart=cursor;
             List<HashSet<int>> members=new List<HashSet<int>>();
             for(int n=classes;n>0;n--) {
                 currentMembers=new HashSet<int>();members.Add(currentMembers);
                 string q=Qualified(Count());if(q!=null){Definitions.Add(q);Classes.Add(q);}Var();int flags=Byte();if((flags&8)!=0)Var();
                 for(int i=Count();i>0;i--)Var();int initializer=Count();methodMembers[initializer]=currentMembers;if(q!=null)constructors[q]=initializer;Traits();
             }
+            classInfoStart=cursor;
             for(int i=0;i<classes;i++){currentMembers=members[i];int initializer=Count();methodMembers[initializer]=currentMembers;Traits();}
             currentMembers=null;
-            for(int n=Count();n>0;n--){scriptInitializers.Add(Count());Traits(true);}
+            scriptsStart=cursor;
+            for(int n=Count();n>0;n--) {
+                Script script=new Script {Initializer=Count(),TraitsStart=cursor};scriptInitializers.Add(script.Initializer);
+                int first=traitNames.Count;Traits(true);script.End=cursor;scripts.Add(script);
+                for(int i=first;i<traitNames.Count;i++) {
+                    Tuple<int,int,int> trait=traitNames[i];string qualified=Qualified(trait.Item2);if(qualified==null)continue;
+                    if(trait.Item3==4){if(script.Anchor==null)script.Anchor=qualified;}else {
+                        script.Globals.Add(qualified);if(trait.Item3==1||trait.Item3==5)GlobalFunctions.Add(qualified);
+                        if(namespaceKinds[names[trait.Item2].Ns]==0x16)PublicGlobals.Add(qualified);
+                    }
+                    if(trait.Item3==4&&qualified.StartsWith("com.jpexs.iggy.globals.",StringComparison.Ordinal))script.Anchor=qualified;
+                }
+                if(script.Anchor!=null)foreach(string name in script.Globals)GlobalScripts[name]=script.Anchor;
+            }
             bodiesStart=cursor;
         }
         static void WriteVar(BinaryWriter w,int n){uint value=(uint)n;while(value>=128){w.Write((byte)(value|128));value>>=7;}w.Write((byte)value);}
@@ -173,6 +200,8 @@ namespace IggyViewer {
 
     internal sealed class RuntimeScriptPlan {
         internal readonly HashSet<string> Classes=new HashSet<string>(StringComparer.Ordinal);
+        internal readonly HashSet<string> Definitions=new HashSet<string>(StringComparer.Ordinal);
+        internal readonly HashSet<string> Globals=new HashSet<string>(StringComparer.Ordinal);
         internal readonly HashSet<string> ClassReferences=new HashSet<string>(StringComparer.Ordinal);
         readonly bool shared,loader,fileList,audio,timers;
         internal bool NeedsSharedObject {get{return shared;}}
@@ -182,7 +211,9 @@ namespace IggyViewer {
             HashSet<string> references=new HashSet<string>(StringComparer.Ordinal),definitions=new HashSet<string>(StringComparer.Ordinal);
             foreach(byte[] source in sources)foreach(byte[] abc in Container.ReadAbcs(source)) {
                 RuntimeAbc parsed=new RuntimeAbc(abc);references.UnionWith(parsed.References);definitions.UnionWith(parsed.Definitions);Classes.UnionWith(parsed.Classes);ClassReferences.UnionWith(parsed.References);
+                Globals.UnionWith(parsed.PublicGlobals);
             }
+            Definitions.UnionWith(definitions);
             shared=references.Contains("flash.net::SharedObject")&&!definitions.Contains("flash.net::SharedObject");
             loader=references.Contains("flash.display::Loader")&&!definitions.Contains("flash.display::Loader")&&!definitions.Contains("flash.net::URLRequest")&&!definitions.Contains("flash.events::IOErrorEvent");
             loader|=references.Contains("flash.system::ApplicationDomain")||references.Contains("flash.system::LoaderContext");
@@ -217,7 +248,8 @@ namespace IggyViewer {
             bool changed=abcs.Count!=0;
             string document=main&&(loader||timers)?Container.DocumentClass(source):null;
             foreach(byte[] abc in Container.ReadAbcs(source)) {
-                byte[] rewritten=new RuntimeAbc(abc).Redirect(loader,fileList);
+                byte[] bound=loader||timers?new RuntimeAbc(abc).BindGlobals():abc;
+                byte[] rewritten=new RuntimeAbc(bound).Redirect(loader,fileList);
                 if(document!=null)rewritten=new RuntimeAbc(rewritten).BootstrapDomain(document);
                 abcs.Add(rewritten);changed|=!Object.ReferenceEquals(abc,rewritten);
             }

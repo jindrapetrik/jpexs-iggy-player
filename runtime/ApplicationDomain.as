@@ -29,13 +29,12 @@ package flash.system {
         }
         public function hasDefinition(name:String):Boolean {
             if (name == null) throw new TypeError("Definition name is null");
-            return new HostDefinitionRequest(id, name).content != null;
+            return String(ExternalInterface.call("__iggy_image_domain_has", String(id) + "|" + name)) == "true";
         }
         public function getDefinition(name:String):Object {
             if (name == null) throw new TypeError("Definition name is null");
-            var result:Object = new HostDefinitionRequest(id, name).content;
-            if (result == null) throw new ReferenceError("Definition " + name + " could not be found");
-            return result;
+            if (!hasDefinition(name)) throw new ReferenceError("Definition " + name + " could not be found");
+            return new HostDefinitionRequest(id, name).content;
         }
         public function getQualifiedDefinitionNames():Array {
             var text:String = String(ExternalInterface.call("__iggy_image_domain_names", String(id)));

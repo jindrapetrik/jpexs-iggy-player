@@ -26,6 +26,8 @@ namespace IggyViewer {
                     Check(KeyFlag(native,"rootImports"),"Startup imports are registered in the main domain");
                     Check(KeyFlag(native,"ownerOk"),"Main and nested startup static initializers see the main domain before the document constructor");
                     Check(KeyFlag(native,"onceOk"),"Startup static initializers execute exactly once");
+                    Check(KeyFlag(native,"globals"),"Startup imported globals support reflection, mutation, null, undefined, zero and false: "+ReadString(native,"globalChecks"));
+                    Check(KeyFlag(native,"lazyGlobalOk"),"hasDefinition does not initialize globals; getDefinition initializes once and preserves object identity");
                     native.Bind<Native.VoidPI>("IggyPlayerGarbageCollect")(native.Player,100);GC.Collect();GC.WaitForPendingFinalizers();
                     Call(native,"","afterGc");Check(KeyFlag(native,"gcLookup"),"Startup static values survive lookup and GC without reinitialization");
                     native.Close();
@@ -54,7 +56,7 @@ namespace IggyViewer {
             }
             Check(Hash(File.ReadAllBytes(movie))==hash,"Domain source remains unchanged");
             foreach(string message in log.Messages)Check(message.IndexOf("Uncaught exception",StringComparison.Ordinal)<0,"No application domain AS3 exceptions");
-            log.Write("PASS: LoaderContext domains/parameters/allowCodeImport, isolated nested imports, parent-first and first-definition class binding, startup host API static initializers, timeline assets, reflection, callback domains, GC and reopen.");
+            log.Write("PASS: LoaderContext domains/parameters/allowCodeImport, isolated nested imports, parent-first and first-definition binding, startup static initializers, global functions/variables/constants/namespaces, lazy initialization, timeline assets, reflection, callback domains, GC and reopen.");
         }
     }
 }

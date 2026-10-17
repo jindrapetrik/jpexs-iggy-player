@@ -355,8 +355,9 @@ namespace IggyViewer {
             IntPtr receiver=Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,24));
             for(int i=0;i<definitions.Count;i++)if(Marshal.ReadIntPtr(definitions[i].Request)==receiver) {
                 DefinitionTicket definition=definitions[i];definitions.RemoveAt(i);freeReference(native.Player,definition.Request);
-                IntPtr value=native.MovieDomainDefinition(definition.Domain,definition.Name);
-                Marshal.WriteIntPtr(Marshal.ReadIntPtr(context,8),value==IntPtr.Zero?nullValue:value);return IntPtr.Zero;
+                IntPtr value;
+                bool found=native.TryMovieDomainDefinition(definition.Domain,definition.Name,out value);
+                Marshal.WriteIntPtr(Marshal.ReadIntPtr(context,8),found?value:nullValue);return IntPtr.Zero;
             }
             foreach(MovieTicket ticket in tickets.ToArray())if(Marshal.ReadIntPtr(ticket.Request)==receiver) {
                 MovieTicket previous=constructing;constructing=ticket;

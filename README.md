@@ -193,14 +193,22 @@ timeline class-name placements use the target domain; already-bound resource
 classes retain their original definitions. This import isolation applies to
 movies loaded through Loader. Use a domain with the system parent
 to load a movie whose document class has the same name as the parent's class.
-Reflection of script functions/variables and domainMemory are unavailable.
+ApplicationDomain reflection includes user-script functions, variables, constants
+and namespaces, including startup and nested imports. Variable lookups read the
+current value; hasDefinition checks existence without running the initializer,
+including definitions whose values are null, undefined, zero or false.
+Scripts with globals use an internal class trait to retain their lazy initializer
+in the native VM. These helpers are not listed as movie definitions.
+Repeated getDefinition calls retain the same reflected Function object, but its
+identity can differ from a separately bound lexical reference in this DLL.
+domainMemory and complete enumeration of native system globals are unavailable.
 When Loader/domain compatibility is needed, startup class-symbol binding runs
 after host compatibility callbacks are installed.
 Static initializers in the main movie and its imported libraries can store
 ApplicationDomain.currentDomain before the document constructor runs.
 Initializers in dynamically loaded libraries run in the selected domain.
 getQualifiedDefinitionNames currently returns
-an Array of local class names, since this DLL does not provide Vector.
+an Array of local public definition names, since this DLL does not provide Vector.
 Non-null securityDomain and requestedContentParent are rejected explicitly.
 checkPolicyFile has no effect for local files. Network transfers,
 loadBytes() and GIF images are not implemented. The supplied DLL's other stubbed

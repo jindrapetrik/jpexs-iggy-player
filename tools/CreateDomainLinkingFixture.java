@@ -38,10 +38,25 @@ public class CreateDomainLinkingFixture {
         for (int variant = 1; variant <= 2; variant++) {
             Path dir = directory.resolve("link" + variant); Files.createDirectories(dir);
             SWF nested = movie(); compile(nested, null, "package linklib { import flash.system.ApplicationDomain; public class NestedState { public static var initializations:uint = 0; public static var count:uint = initialize(); public static var owner:ApplicationDomain = ApplicationDomain.currentDomain; private static function initialize():uint { initializations++; return " + (40 + variant) + "; } public function NestedState() { } } }");
+            compile(nested, null, "package linklib { public var nestedGlobal:uint = " + (40 + variant) + "; }");
             write(nested, dir.resolve("nested"));
             SWF library = movie(); compile(library, null,
-                    "package linklib { import flash.system.ApplicationDomain; public class ImportedState { public static var initializations:uint = 0; public static var count:uint = initialize(); private static function initialize():uint { initializations++; return " + (variant == 1 ? 17 : 29) + "; } public static var owner:ApplicationDomain = ApplicationDomain.currentDomain; public function ImportedState() { } public static function current():ApplicationDomain { return ApplicationDomain.currentDomain; } } }",
-                    "package linklib { import flash.display.Shape; public class ImportedTile extends Shape { public var mark:uint = " + variant + "; public function ImportedTile() { super(); } } }");
+                    "package linklib { import flash.system.ApplicationDomain; public class ImportedState { public static var initializations:uint = 0; public static var globalInitializations:uint = 0; public static var count:uint = initialize(); private static function initialize():uint { initializations++; return " + (variant == 1 ? 17 : 29) + "; } public static var owner:ApplicationDomain = ApplicationDomain.currentDomain; public function ImportedState() { } public static function current():ApplicationDomain { return ApplicationDomain.currentDomain; } public static function initializeGlobal():Object { globalInitializations++; return {marker:67}; } } }",
+                    "package linklib { import flash.display.Shape; public class ImportedTile extends Shape { public var mark:uint = " + variant + "; public function ImportedTile() { super(); } } }",
+                    "package linklib { public var globalCounter:uint = " + (variant == 1 ? 17 : 29) + "; }",
+                    "package linklib { public const globalLabel:String = '" + (variant == 1 ? "blue" : "red") + "'; }",
+                    "package linklib { public var parentGlobal:uint = " + (200 + variant) + "; }",
+                    "package linklib { public var nullGlobal:Object = null; }",
+                    "package linklib { public var undefinedGlobal:*; }",
+                    "package linklib { public var zeroGlobal:int = 0; }",
+                    "package linklib { public var falseGlobal:Boolean = false; }",
+                    "package linklib { public var lazyGlobal:Object = ImportedState.initializeGlobal(); }",
+                    "package linklib { public class MixedScope { public function MixedScope() { } } internal var hiddenGlobal:uint = 9; public var variant" + variant + "Global:uint = " + (50 + variant) + "; public function readMixed():uint { return variant" + variant + "Global + hiddenGlobal; } }",
+                    "package linklib { public namespace globalNamespace = 'urn:iggy:test'; }",
+                    "package linklib { import flash.system.ApplicationDomain; public function parentCurrent():ApplicationDomain { return ApplicationDomain.currentDomain; } }",
+                    "package linklib { import flash.system.ApplicationDomain; public function globalCurrent():ApplicationDomain { return ApplicationDomain.currentDomain; } }",
+                    "package linklib { public function incrementGlobal():uint { return ++globalCounter; } }",
+                    "package linklib { public function readParentGlobal():uint { return parentGlobal; } }");
             if (variant == 1) primaryLibrary = abc(library);
             DefineShape3Tag shape = new DefineShape3Tag(library); shape.shapeId = 1; shape.shapeBounds = new RECT(0, 800, 0, 800);
             FILLSTYLE fill = new FILLSTYLE(); fill.fillStyleType = 0; fill.color = variant == 1 ? new RGBA(0, 0, 255, 255) : new RGBA(255, 0, 0, 255);
@@ -64,9 +79,13 @@ public class CreateDomainLinkingFixture {
         }
         SWF main = movie(); compile(main, null,
                 "package { public class CollisionValue { public static var marker:uint = 101; public function CollisionValue() { } public function label():uint { return marker; } } }",
+                "package linklib { public var parentGlobal:uint = 101; }",
+                "package linklib { import flash.system.ApplicationDomain; public function parentCurrent():ApplicationDomain { return ApplicationDomain.currentDomain; } }",
                 Files.readString(directory.resolve("scripts/DomainLinkMain.as")));
         root(main, "DomainLinkMain"); write(main, directory.resolve("linking"));
         SWF importedRoot = movie(); compile(importedRoot, primaryLibrary,
+                "package { public var rootCounter:uint = 73; }",
+                "package { import flash.system.ApplicationDomain; public function rootCurrent():ApplicationDomain { return ApplicationDomain.currentDomain; } }",
                 Files.readString(directory.resolve("scripts/RootImportCheck.as")));
         root(importedRoot, "RootImportCheck"); imports(importedRoot, "link1/library.swf");
         write(importedRoot, directory.resolve("root-imports"));

@@ -37,6 +37,7 @@ namespace IggyViewer {
                         if(libraries.Count>=32)throw new IOException("The native runtime's 32-library limit has been reached.");
                         string privateUrl="__iggy_domain_"+domain+"_"+Guid.NewGuid().ToString("N")+".iggy";
                         byte[] bytes=PrepareDomainMovie(original,plan,names,dependencies),name=Encoding.UTF8.GetBytes(privateUrl+"\0");
+                        RegisterGlobalScripts(bytes,domain);
                         byte* options=stackalloc byte[80];for(int j=0;j<80;j++)options[j]=0;
                         int id;fixed(byte* data=bytes)fixed(byte* text=name)id=createLibrary((IntPtr)text,(IntPtr)data,(uint)bytes.Length,(IntPtr)options);
                         if(id<0||id>31)throw new InvalidDataException("DLL rejected domain import: "+url);
@@ -88,9 +89,15 @@ namespace IggyViewer {
             }
         }
         void AddMovieDomainDefinitions(int domain,byte[] source,Dictionary<string,string> names,IntPtr vm) {
-            foreach(byte[] abc in Container.ReadAbcs(source))foreach(string name in new RuntimeAbc(abc).Classes) {
-                if(FindDomainDefinition(domain,name)!=null)continue;
-                string link;AddDomainDefinition(domain,name,MovieLookup(vm,names.TryGetValue(name,out link)?link:name),link??name);
+            foreach(byte[] abc in Container.ReadAbcs(source)) {
+                RuntimeAbc parsed=new RuntimeAbc(abc);
+                HashSet<string> definitions=new HashSet<string>(parsed.Classes,StringComparer.Ordinal);definitions.UnionWith(parsed.PublicGlobals);
+                foreach(string name in definitions) {
+                    if(FindDomainDefinition(domain,name)!=null)continue;
+                    bool global=!parsed.Classes.Contains(name);string link;
+                    names.TryGetValue(name,out link);
+                    AddDomainDefinition(domain,name,global?IntPtr.Zero:MovieLookup(vm,link??name),link??name,global:global);
+                }
             }
         }
     }

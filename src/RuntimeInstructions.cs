@@ -73,7 +73,7 @@ namespace IggyViewer {
         void WriteTraitSpan(BinaryWriter w,int start,int end,Dictionary<int,int> aliases) {
             int previous=start;
             foreach(Tuple<int,int,int> trait in traitNames) {
-                int replacement;if(trait.Item1<start||trait.Item1>=end||trait.Item3==4||!aliases.TryGetValue(trait.Item2,out replacement))continue;
+                int replacement;if(trait.Item1<start||trait.Item1>=end||globalTraits.Contains(trait.Item1)||trait.Item3==4||!aliases.TryGetValue(trait.Item2,out replacement))continue;
                 w.Write(bytes,previous,trait.Item1-previous);WriteVar(w,replacement);cursor=trait.Item1;Var();previous=cursor;
             }
             w.Write(bytes,previous,end-previous);

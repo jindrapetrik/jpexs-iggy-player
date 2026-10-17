@@ -308,6 +308,7 @@ namespace IggyViewer {
             }
             LoadImports(FileName,original,new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             byte[] bytes = Container.Prepare(runtimeScripts==null?original:runtimeScripts.Apply(original,true,log),log);
+            RegisterGlobalScripts(bytes);
             if (bytes.Length < 32) throw new InvalidDataException("The Iggy file is too short.");
             foreach(string font in Container.EmbeddedFonts(bytes))embeddedFonts.Add(font);
             InstallDeviceFonts();
@@ -340,7 +341,7 @@ namespace IggyViewer {
             if(imageLoader!=null&&loaderInfo!=null)loaderInfo.LoadedInfo=imageLoader.LookupLoaderInfo;
             if(runtimeScripts!=null&&(runtimeScripts.NeedsSharedObject||runtimeScripts.NeedsLoader))sharedObjectStorage=new SharedObjectStorage(this,StorageDirectory,log,imageLoader);
             wallClock.Restart();UpdateClock();
-            if(deferClasses)MovieFunction<VoidP>(0x42d0,0x1cd0)(Player);
+            if(deferClasses){PublishGlobalScripts(Marshal.ReadIntPtr(Player,modernDll?10560:10480));MovieFunction<VoidP>(0x42d0,0x1cd0)(Player);}
             initialize(Player);
             PatchDeferredDomainClasses();
             play(Player);
@@ -374,6 +375,7 @@ namespace IggyViewer {
                 if(file==null){log.Write("Missing import: "+url+" (requested by "+from+")");continue;}
                 byte[] original=File.ReadAllBytes(file);LoadImports(file,original,visiting);
                 byte[] data=Container.Prepare(runtimeScripts==null?original:runtimeScripts.Apply(original,false,log),log),name=Encoding.UTF8.GetBytes(url+"\0");
+                RegisterGlobalScripts(data);
                 foreach(string font in Container.EmbeddedFonts(data))embeddedFonts.Add(font);
                 byte* options=stackalloc byte[80];for(int j=0;j<80;j++)options[j]=0;
                 int id;

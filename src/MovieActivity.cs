@@ -128,6 +128,10 @@ namespace IggyViewer {
                 }
             } finally {patchDomain=previous;}
         }
+        internal void PatchGlobal(IntPtr value,int domain) {
+            int previous=patchDomain;patchDomain=domain;
+            try {PatchFunction(value,false);}finally {patchDomain=previous;}
+        }
         void PatchFunction(IntPtr value,bool registered,bool constructor=false) {
             if(!Heap(value))return;
             byte kind=Marshal.ReadByte(IntPtr.Subtract(value,1));
