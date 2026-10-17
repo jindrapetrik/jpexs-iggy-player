@@ -17,9 +17,11 @@ namespace IggyViewer {
         readonly SetString setString;
         readonly SetBoolean setBoolean;
         readonly string folder;
+        readonly ImageLoader images;
         static string Hash(string text) {using(SHA256 sha=SHA256.Create())return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(text))).Replace("-","").Substring(0,32);}
-        internal SharedObjectStorage(Native native,string directory,Log log) {
+        internal SharedObjectStorage(Native native,string directory,Log log,ImageLoader images=null) {
             this.native=native;this.log=log;
+            this.images=images;
             folder=Path.Combine(directory,Hash(Path.GetFullPath(native.FileName).ToUpperInvariant()));
             // The old DLL emits CESU-8 for surrogate pairs in its UTF-8 bridge.
             // The UTF-16 bridge preserves AS3 strings in both supplied builds.
@@ -39,6 +41,12 @@ namespace IggyViewer {
             string name=Marshal.PtrToStringUni(Marshal.ReadIntPtr(call));
             try {
                 if(player!=native.Player)throw new InvalidDataException("Wrong SharedObject movie owner.");
+                if(images!=null&&name.StartsWith("__iggy_image_",StringComparison.Ordinal)) {
+                    string result=images.Call(name,Argument(call,0));
+                    IntPtr buffer=Marshal.StringToHGlobalUni(result);
+                    try {setString(resultPath(player),IntPtr.Zero,IntPtr.Zero,buffer,result.Length);}finally {Marshal.FreeHGlobal(buffer);}
+                    return 1;
+                }
                 if(name!="__iggy_shared_read"&&name!="__iggy_shared_write"&&name!="__iggy_shared_clear") {
                     log.Write("ExternalInterface function unavailable in standalone player: "+name);return 1;
                 }

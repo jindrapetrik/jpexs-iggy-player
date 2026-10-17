@@ -716,6 +716,7 @@ namespace IggyViewer {
         public void RegisterGradient(IntPtr owner){gradientOwners.Add(owner);}
         public void BeginMorphFrame(){foreach(FocalMorph focal in focalOwners.Values)focal.Ratios.Clear();}
         public void AddMorphInstance(IntPtr definition,float ratio){List<FocalMorph> fills;if(focalDefinitions.TryGetValue(definition,out fills))foreach(FocalMorph focal in fills)focal.AddRatio(ratio);}
+        internal void ReleaseLoadedTexture(IntPtr handle) {Free(handle);}
         public void ClearResources() { foreach(IntPtr key in new List<IntPtr>(resources.Keys))Free(key);focalOwners.Clear();focalDefinitions.Clear();gradientOwners.Clear(); }
         public void Dispose() { ClearResources();ReleaseSurfaces();if(gpu!=null){gpu.Dispose();gpu=null;}Marshal.FreeHGlobal(Interface);Interface=IntPtr.Zero;GC.KeepAlive(callbacks); }
     }

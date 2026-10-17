@@ -108,6 +108,7 @@ namespace IggyViewer {
         readonly bool shared,loader,fileList,audio;
         internal bool NeedsSharedObject {get{return shared;}}
         internal bool NeedsAudio {get{return audio;}}
+        internal bool NeedsLoader {get{return loader;}}
         public RuntimeScriptPlan(IEnumerable<byte[]> sources) {
             HashSet<string> references=new HashSet<string>(StringComparer.Ordinal),definitions=new HashSet<string>(StringComparer.Ordinal);
             foreach(byte[] source in sources)foreach(byte[] abc in Container.ReadAbcs(source)) {
@@ -118,7 +119,7 @@ namespace IggyViewer {
             fileList=references.Contains("flash.net::FileReferenceList")&&!definitions.Contains("flash.net::FileReferenceList");
             audio=references.Contains("flash.media::Sound")||references.Contains("flash.media::SoundChannel");
             if(audio&&references.Contains("::__IggyHostSoundEvents"))throw new InvalidDataException("Movie conflicts with the host sound completion class.");
-            if((loader||fileList)&&(definitions.Contains("com.jpexs.iggy.runtime::HostLoader")||definitions.Contains("com.jpexs.iggy.runtime::HostURLRequest")||definitions.Contains("com.jpexs.iggy.runtime::HostLoaderInfo")||definitions.Contains("com.jpexs.iggy.runtime::HostIOErrorEvent")||definitions.Contains("com.jpexs.iggy.runtime::HostFileReferenceList")))
+            if((loader||fileList)&&(definitions.Contains("com.jpexs.iggy.runtime::HostLoader")||definitions.Contains("com.jpexs.iggy.runtime::HostURLRequest")||definitions.Contains("com.jpexs.iggy.runtime::HostLoaderInfo")||definitions.Contains("com.jpexs.iggy.runtime::HostIOErrorEvent")||definitions.Contains("com.jpexs.iggy.runtime::HostFileReferenceList")||definitions.Contains("com.jpexs.iggy.runtime::HostLoadedBitmap")||definitions.Contains("com.jpexs.iggy.runtime::HostProgressEvent")))
                 throw new InvalidDataException("Movie conflicts with the Iggy runtime compatibility namespace.");
             if(shared&&definitions.Contains("com.jpexs.iggy.runtime::HostCodec"))throw new InvalidDataException("Movie conflicts with the SharedObject codec namespace.");
         }

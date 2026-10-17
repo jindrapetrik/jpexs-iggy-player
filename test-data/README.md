@@ -42,6 +42,27 @@ Non-ASCII strings are intentional Unicode persistence test data. See the
 [LoaderInfo notes](loaderinfo/README.md) and
 [runtime API notes](runtime/README.md).
 
+## Local Loader images
+
+loader.swf and loader.iggy use loader/scripts/Main.as and the small generated
+images in loader/. The fixture checks asynchronous PNG/JPEG loads, URL-escaped
+Unicode paths and queries, native colors and alpha, content and LoaderInfo,
+event order, missing files, replacement requests, close/unload during callbacks,
+clone lifetime, pixel reclamation and loading again after unload. The default
+suite uses software rendering; -TestOpenGl also runs it on the GPU.
+
+Regenerate the SWF and IGGY with a compatible FFDec library:
+
+~~~powershell
+$classpath = 'PATH_TO_FFDEC_JAR;PATH_TO_FFDEC_LIB/*'
+.\tools\CreateLoaderImages.ps1
+javac -encoding UTF-8 -cp $classpath tools/CreateLoaderFixture.java
+java -cp "tools;$classpath" CreateLoaderFixture test-data/as3.swf test-data/loader
+~~~
+
+The PNG has red/green/blue stripes and a half-transparent red stripe; the
+JPEG is cyan. The second PNG is an identical copy under a Unicode filename.
+
 ## Audio
 
 The audio.swf and audio.iggy fixtures contain generated sine tones in PCM8,

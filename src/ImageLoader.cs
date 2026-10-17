@@ -1,0 +1,240 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading;
+
+namespace IggyViewer {
+    // File decoding runs off the movie thread. Only the constructor bridge
+    // touches VM objects; its private fifth argument is an opaque job token.
+    internal unsafe sealed class ImageLoader : IDisposable {
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr Builtin(IntPtr context);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr Reference(IntPtr player,IntPtr value,int weak);
+        sealed class Pixels {
+            internal IntPtr Definition,Raw;
+            internal int Size;
+            internal readonly List<IntPtr> Owners=new List<IntPtr>();
+        }
+        sealed class InfoOwner {internal IntPtr Info,Owner;}
+        readonly List<InfoOwner> infos=new List<InfoOwner>();
+        sealed class Job {
+            internal string Token,Status="pending",Url;
+            internal int Width,Height,Bytes;
+            internal int[] Pixels;
+            internal bool Cancelled,Uploaded;
+        }
+        readonly object sync=new object();
+        readonly Dictionary<string,Job> jobs=new Dictionary<string,Job>();
+        readonly Dictionary<IntPtr,Pixels> bitmaps=new Dictionary<IntPtr,Pixels>();
+        readonly Native native;
+        readonly Reference reference;
+        readonly Native.VoidPP freeReference;
+        readonly SemaphoreSlim decoders=new SemaphoreSlim(2);
+        readonly string directory;
+        readonly Builtin originalConstructor,constructor;
+        readonly Builtin originalClone,clone;
+        readonly Builtin originalLoaderGetter,loaderGetter;
+        readonly Builtin originalInfoConstructor,infoConstructor;
+        readonly Log log;
+        bool closed;
+        long allocated;
+        internal long AllocatedBytes {get{lock(sync)return allocated;}}
+        internal ImageLoader(Native native,IntPtr module,bool modern,Log log) {
+            this.native=native;this.log=log;directory=Path.GetDirectoryName(Path.GetFullPath(native.FileName));
+            reference=native.Bind<Reference>("IggyValueRefFromTempRef");freeReference=native.Bind<Native.VoidPP>("IggyValueRefFree");
+            IntPtr vm=Marshal.ReadIntPtr(native.Player,modern?10560:10480);
+            Dictionary<string,IntPtr> classes=new Dictionary<string,IntPtr>();
+            int count=Marshal.ReadInt32(vm,modern?9648:9624);
+            if(count<1||count>250)throw new InvalidDataException("Unexpected image class registry.");
+            for(int i=0;i<count;i++) {
+                IntPtr entry=IntPtr.Add(vm,(modern?3648:3624)+24*i);
+                classes[Marshal.PtrToStringAnsi(Marshal.ReadIntPtr(entry))]=Marshal.ReadIntPtr(entry,16);
+            }
+            // Initialize inherited Event state missing from ProgressEvent.
+            Marshal.WriteIntPtr(classes["ProgressEvent"],56,Marshal.ReadIntPtr(classes["Event"],56));
+            IntPtr metadata=classes["BitmapData"];
+            originalConstructor=(Builtin)Marshal.GetDelegateForFunctionPointer(Marshal.ReadIntPtr(metadata,56),typeof(Builtin));
+            constructor=Construct;
+            Marshal.WriteIntPtr(metadata,56,Marshal.GetFunctionPointerForDelegate(constructor));
+            clone=Clone;
+            IntPtr traits=Marshal.ReadIntPtr(metadata,72),methods=Marshal.ReadIntPtr(traits,64);
+            int methodsCount=(ushort)Marshal.ReadInt16(traits,22);
+            if(methodsCount>256)throw new InvalidDataException("Unexpected BitmapData method table.");
+            for(int i=0;i<methodsCount;i++) {
+                IntPtr function=IntPtr.Subtract(Marshal.ReadIntPtr(methods,8*i),1);
+                if(function.ToInt64()<65536||Marshal.ReadByte(function)!=16)continue;
+                IntPtr text=Marshal.ReadIntPtr(function,8);int length=Marshal.ReadInt32(text,48);
+                if(length!=5||Marshal.PtrToStringUni(IntPtr.Add(text,52),length)!="clone")continue;
+                originalClone=(Builtin)Marshal.GetDelegateForFunctionPointer(Marshal.ReadIntPtr(function,16),typeof(Builtin));
+                Marshal.WriteIntPtr(function,16,Marshal.GetFunctionPointerForDelegate(clone));break;
+            }
+            if(originalClone==null)throw new InvalidDataException("Cannot locate BitmapData.clone.");
+            loaderGetter=GetLoader;
+            traits=Marshal.ReadIntPtr(classes["LoaderInfo"],72);methods=Marshal.ReadIntPtr(traits,72);
+            methodsCount=(ushort)Marshal.ReadInt16(traits,26);
+            if(methodsCount>256)throw new InvalidDataException("Unexpected LoaderInfo getter table.");
+            for(int i=0;i<methodsCount;i++) {
+                IntPtr function=Marshal.ReadIntPtr(methods,8*i);if(function.ToInt64()<65536||Marshal.ReadByte(function)!=16)continue;
+                IntPtr text=Marshal.ReadIntPtr(function,8);int length=Marshal.ReadInt32(text,48);
+                if(length!=6||Marshal.PtrToStringUni(IntPtr.Add(text,52),length)!="loader")continue;
+                originalLoaderGetter=(Builtin)Marshal.GetDelegateForFunctionPointer(Marshal.ReadIntPtr(function,16),typeof(Builtin));
+                Marshal.WriteIntPtr(function,16,Marshal.GetFunctionPointerForDelegate(loaderGetter));break;
+            }
+            if(originalLoaderGetter==null)throw new InvalidDataException("Cannot locate LoaderInfo.loader.");
+            // The old ExternalInterface bridge cannot marshal these object
+            // arguments. LoaderInfo's native no-op constructor can receive the
+            // owner directly from our AS3 subclass, before any script runs.
+            metadata=classes["LoaderInfo"];
+            originalInfoConstructor=(Builtin)Marshal.GetDelegateForFunctionPointer(Marshal.ReadIntPtr(metadata,56),typeof(Builtin));
+            infoConstructor=ConstructInfo;
+            Marshal.WriteIntPtr(metadata,56,Marshal.GetFunctionPointerForDelegate(infoConstructor));
+            log.Write("Loader: asynchronous local PNG/JPEG files and native bitmap upload enabled.");
+        }
+        internal string Call(string operation,string value) {
+            lock(sync) {
+                if(closed)return "error|Movie closed";
+                if(operation=="__iggy_image_start") {
+                    if(jobs.Count>=32)return "error|Too many pending image loads";
+                    Job job=new Job {Token=Guid.NewGuid().ToString("N"),Url=value};jobs.Add(job.Token,job);
+                    ThreadPool.QueueUserWorkItem(delegate {decoders.Wait();try {Decode(job);}finally {decoders.Release();}});return job.Token;
+                }
+                Job current;if(!jobs.TryGetValue(value,out current))return "error|Image load was cancelled";
+                if(operation=="__iggy_image_poll")return current.Status;
+                if(operation=="__iggy_image_finish") {jobs.Remove(value);current.Pixels=null;return current.Uploaded?"ok":"error|Cannot upload image pixels";}
+                if(operation=="__iggy_image_cancel") {current.Cancelled=true;current.Pixels=null;jobs.Remove(value);return "ok";}
+                return "error|Unknown image operation";
+            }
+        }
+        void Decode(Job job) {
+            try {
+                lock(sync)if(closed||job.Cancelled)return;
+                Uri uri;
+                int separator=job.Url.IndexOfAny(new char[]{'?','#'});
+                string location=separator<0?job.Url:job.Url.Substring(0,separator);
+                if(!Uri.TryCreate(location,UriKind.Absolute,out uri))uri=new Uri(new Uri("file:///"+Path.Combine(directory,"movie.iggy").Replace('\\','/')),location);
+                if(!uri.IsFile||uri.IsUnc)throw new IOException("Only local PNG/JPEG files are supported");
+                string path=uri.LocalPath;
+                byte[] bytes;
+                using(FileStream input=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read)) {
+                    if(input.Length>32*1024*1024)throw new IOException("Image file exceeds 32 MiB");
+                    bytes=new byte[(int)input.Length];int offset=0;
+                    while(offset<bytes.Length){int size=input.Read(bytes,offset,bytes.Length-offset);if(size==0)throw new EndOfStreamException();offset+=size;}
+                }
+                string type=bytes.Length>=8&&bytes[0]==137&&bytes[1]==80&&bytes[2]==78&&bytes[3]==71?"image/png":bytes.Length>=3&&bytes[0]==255&&bytes[1]==216&&bytes[2]==255?"image/jpeg":null;
+                if(type==null)throw new IOException("Resource is not a PNG or JPEG image");
+                int[] pixels;int width,height;
+                using(MemoryStream stream=new MemoryStream(bytes,false))using(Image source=Image.FromStream(stream,true,true)) {
+                    width=source.Width;height=source.Height;
+                    if(width<1||height<1||width>3840||height>3840||width*(long)height>16*1024*1024)throw new IOException("Image dimensions exceed native BitmapData limits");
+                    lock(sync)if(closed||job.Cancelled)return;
+                    using(Bitmap bitmap=new Bitmap(width,height,PixelFormat.Format32bppArgb)) {
+                        using(Graphics g=Graphics.FromImage(bitmap)){g.CompositingMode=System.Drawing.Drawing2D.CompositingMode.SourceCopy;g.DrawImage(source,new Rectangle(0,0,width,height));}
+                        pixels=new int[width*height];BitmapData data=bitmap.LockBits(new Rectangle(0,0,width,height),ImageLockMode.ReadOnly,PixelFormat.Format32bppArgb);
+                        try {for(int y=0;y<height;y++)Marshal.Copy(IntPtr.Add(data.Scan0,y*data.Stride),pixels,y*width,width);}finally {bitmap.UnlockBits(data);}
+                    }
+                }
+                lock(sync) {
+                    if(closed||job.Cancelled)return;
+                    long pending=allocated;
+                    foreach(Job existing in jobs.Values)if(existing.Pixels!=null)pending+=existing.Pixels.LongLength*4;
+                    if(pending+pixels.LongLength*4>128*1024*1024)throw new IOException("Loaded image storage exceeds 128 MiB for this movie");
+                    job.Pixels=pixels;job.Width=width;job.Height=height;job.Bytes=bytes.Length;
+                    job.Status="ready|"+width+"|"+height+"|"+bytes.Length+"|"+type+"|"+uri.AbsoluteUri+(separator<0?"":job.Url.Substring(separator));
+                }
+            } catch(Exception ex) {
+                lock(sync)if(!closed&&!job.Cancelled)job.Status="error|"+ex.Message.Replace('|',' ');
+            }
+        }
+        IntPtr Construct(IntPtr context) {
+            IntPtr result=originalConstructor(context);
+            try {
+                if(Marshal.ReadInt32(context,16)<5)return result;
+                IntPtr arguments=Marshal.ReadIntPtr(context,24),value=Marshal.ReadIntPtr(arguments,40);
+                if((value.ToInt64()&3)!=1||Marshal.ReadByte(IntPtr.Subtract(value,1))!=8)return result;
+                IntPtr text=Marshal.ReadIntPtr(value,7);int length=Marshal.ReadInt32(text,7);if(length!=32)return result;
+                string token=Marshal.PtrToStringUni(IntPtr.Add(text,11),length);
+                lock(sync) {
+                    Job job;if(!jobs.TryGetValue(token,out job)||job.Pixels==null||job.Cancelled||job.Uploaded)return result;
+                    IntPtr receiver=Marshal.ReadIntPtr(arguments),buffer=Marshal.ReadIntPtr(receiver,55);
+                    if(buffer==IntPtr.Zero||Marshal.ReadInt32(receiver,47)!=job.Width||Marshal.ReadInt32(receiver,51)!=job.Height)return result;
+                    int size=checked(job.Pixels.Length*4);
+                    if(allocated+size>128*1024*1024)throw new IOException("Loaded image storage exceeds 128 MiB for this movie");
+                    Marshal.Copy(job.Pixels,0,buffer,job.Pixels.Length);
+                    Pixels owned=new Pixels {Definition=Marshal.AllocHGlobal(88),Size=size};
+                    bitmaps.Add(owned.Definition,owned);
+                    IntPtr definition=owned.Definition,raw=owned.Raw=Marshal.AllocHGlobal(size);allocated+=size;
+                    for(int i=0;i<88;i++)Marshal.WriteByte(definition,i,0);
+                    Marshal.WriteByte(definition,0,4);Marshal.WriteByte(definition,1,128);
+                    Marshal.WriteInt16(definition,32,(short)job.Width);Marshal.WriteInt16(definition,34,(short)job.Height);
+                    Marshal.WriteByte(definition,36,4);Marshal.WriteByte(definition,39,2);
+                    *((float*)((byte*)definition+48))=1;*((float*)((byte*)definition+52))=1;
+                    // Native texture source format 0 is RGBA, premultiplied.
+                    int[] rgba=new int[job.Pixels.Length];
+                    for(int i=0;i<rgba.Length;i++) {
+                        uint p=(uint)job.Pixels[i],a=p>>24;
+                        rgba[i]=(int)((a<<24)|(((p>>16)&255)*a/255)|((((p>>8)&255)*a/255)<<8)|(((p&255)*a/255)<<16));
+                    }
+                    Marshal.Copy(rgba,0,raw,rgba.Length);Marshal.WriteIntPtr(definition,64,raw);Marshal.WriteInt32(definition,80,size);
+                    Marshal.WriteIntPtr(receiver,39,definition);
+                    owned.Owners.Add(reference(native.Player,receiver,1));job.Uploaded=true;
+                }
+            } catch(Exception ex) {log.Write("Loader image upload failed: "+ex.Message);}
+            return result;
+        }
+        IntPtr Clone(IntPtr context) {
+            IntPtr result=originalClone(context),value=Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,8));
+            if((value.ToInt64()&3)==1) {
+                Pixels pixels;if(bitmaps.TryGetValue(Marshal.ReadIntPtr(value,39),out pixels))pixels.Owners.Add(reference(native.Player,value,1));
+            }
+            return result;
+        }
+        IntPtr ConstructInfo(IntPtr context) {
+            IntPtr result=originalInfoConstructor(context);
+            if(Marshal.ReadInt32(context,16)>0) {
+                IntPtr arguments=Marshal.ReadIntPtr(context,24),info=Marshal.ReadIntPtr(arguments),owner=Marshal.ReadIntPtr(arguments,8);
+                if((owner.ToInt64()&3)==1)infos.Add(new InfoOwner {Info=reference(native.Player,info,1),Owner=reference(native.Player,owner,1)});
+            }
+            return result;
+        }
+        IntPtr GetLoader(IntPtr context) {
+            IntPtr receiver=Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,24));
+            foreach(InfoOwner info in infos)if(Marshal.ReadIntPtr(info.Info)==receiver) {
+                IntPtr owner=Marshal.ReadIntPtr(info.Owner);
+                if(owner.ToInt64()==7)break;
+                Marshal.WriteIntPtr(Marshal.ReadIntPtr(context,8),owner);return IntPtr.Zero;
+            }
+            return originalLoaderGetter(context);
+        }
+        internal void Prune() {
+            for(int i=infos.Count-1;i>=0;i--)if(Marshal.ReadIntPtr(infos[i].Info).ToInt64()==7||Marshal.ReadIntPtr(infos[i].Owner).ToInt64()==7) {
+                freeReference(native.Player,infos[i].Info);freeReference(native.Player,infos[i].Owner);infos.RemoveAt(i);
+            }
+            foreach(Pixels pixels in bitmaps.Values) {
+                for(int i=pixels.Owners.Count-1;i>=0;i--)if(Marshal.ReadIntPtr(pixels.Owners[i]).ToInt64()==7) {
+                    freeReference(native.Player,pixels.Owners[i]);pixels.Owners.RemoveAt(i);
+                }
+                if(pixels.Owners.Count!=0||pixels.Raw==IntPtr.Zero)continue;
+                // Native cache records can retain the small owner structure.
+                // Keep that address until PlayerDestroy, but retire its texture
+                // and pixel allocation as soon as all BitmapData clones die.
+                native.Renderer.ReleaseLoadedTexture(Marshal.ReadIntPtr(pixels.Definition,40));
+                Marshal.WriteIntPtr(pixels.Definition,40,IntPtr.Zero);Marshal.WriteIntPtr(pixels.Definition,64,IntPtr.Zero);
+                Marshal.FreeHGlobal(pixels.Raw);pixels.Raw=IntPtr.Zero;
+                lock(sync)allocated-=pixels.Size;
+            }
+        }
+        internal void CancelAll() {
+            lock(sync){closed=true;foreach(Job job in jobs.Values){job.Cancelled=true;job.Pixels=null;}jobs.Clear();}
+            foreach(Pixels pixels in bitmaps.Values){foreach(IntPtr owner in pixels.Owners)freeReference(native.Player,owner);pixels.Owners.Clear();}
+            foreach(InfoOwner info in infos){freeReference(native.Player,info.Info);freeReference(native.Player,info.Owner);}infos.Clear();
+        }
+        public void Dispose() {
+            // Native bitmap clones and cached textures share these definitions.
+            // Release them only after PlayerDestroy has drained its cache queue.
+            CancelAll();foreach(Pixels pixels in bitmaps.Values){if(pixels.Raw!=IntPtr.Zero)Marshal.FreeHGlobal(pixels.Raw);Marshal.FreeHGlobal(pixels.Definition);}
+            bitmaps.Clear();GC.KeepAlive(constructor);GC.KeepAlive(clone);GC.KeepAlive(loaderGetter);GC.KeepAlive(infoConstructor);
+        }
+    }
+}

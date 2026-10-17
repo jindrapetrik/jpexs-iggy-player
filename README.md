@@ -142,8 +142,23 @@ the DLL produces vector glyphs.
 
 SharedObject.getLocal uses a private persistent format under sharedobjects,
 separated by movie path. Existing Flash .sol files are not imported. The
-Loader compatibility layer reports asynchronous IOErrorEvent failures;
-network transfers and successful dynamic movie loading are not implemented.
+Loader compatibility layer loads local PNG/JPEG images asynchronously, relative
+to the original movie's directory. Absolute local paths and file: URLs are also
+accepted, including escaped Unicode names and URL queries. Loaded content is
+a Bitmap child with LoaderInfo dimensions, MIME type, URL and byte counts.
+OPEN, PROGRESS, INIT and COMPLETE are dispatched on contentLoaderInfo, in that
+order; missing, invalid and unsupported resources dispatch IOErrorEvent.
+close() cancels pending work without removing loaded content. unload() and
+unloadAndStop() cancel pending work, remove content and dispatch UNLOAD when
+content was present. Event listeners may close, unload or replace a request;
+stale requests do not dispatch later completion events. Pixel and texture
+storage is reclaimed when native GC collects the last BitmapData clone.
+Local image limits are 32 MiB encoded data per file, 3840 pixels per dimension,
+32 pending requests and 128 MiB of live or pending host pixel storage per movie.
+Two worker threads decode files; VM access and event delivery stay on the
+movie thread. Network transfers, loadBytes(), GIF images and dynamically loaded
+SWF/IGGY movies are not implemented. The supplied DLL's other stubbed
+BitmapData drawing/pixel-editing methods remain unsupported.
 LoaderInfo counters report the original size of the synchronously loaded
 Iggy file.
 
@@ -222,6 +237,7 @@ IggyPlayer.exe --self-test-keyboard test-data/keyboard.iggy output-directory
 IggyPlayer.exe --self-test-cursor test-data/cursor.iggy output-directory
 IggyPlayer.exe --self-test-loaderinfo test-data/loaderinfo.iggy output-directory
 IggyPlayer.exe --self-test-runtime test-data/runtime.iggy output-directory
+IggyPlayer.exe --self-test-loader test-data/loader.iggy output-directory
 IggyPlayer.exe --self-test-audio test-data/audio.iggy output-directory
 IggyPlayer.exe --self-test-fixup-partitions test-data/graphics.iggy output-directory
 IggyPlayer.exe --self-test-zero-scale test-data/zero-scale.iggy output-directory

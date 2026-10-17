@@ -1,10 +1,21 @@
 package com.jpexs.iggy.runtime {
+    import flash.display.DisplayObject;
     import flash.display.LoaderInfo;
     public class HostLoaderInfo extends LoaderInfo {
         public var requestUrl:String;
-        public function HostLoaderInfo() { super(); }
-        override public function get bytesLoaded():uint { return 0; }
-        override public function get bytesTotal():uint { return 0; }
+        public var requestBytes:uint;
+        public var imageWidth:int;
+        public var imageHeight:int;
+        public var mimeType:String;
+        public var imageContent:DisplayObject;
+        public var owner:DisplayObject;
+        public function HostLoaderInfo(owner:DisplayObject = null) { super(owner); this.owner = owner; }
+        override public function get bytesLoaded():uint { return requestBytes; }
+        override public function get bytesTotal():uint { return requestBytes; }
         override public function get url():String { return requestUrl; }
+        override public function get content():DisplayObject { return imageContent; }
+        override public function get width():int { return imageWidth; }
+        override public function get height():int { return imageHeight; }
+        override public function get contentType():String { return mimeType; }
     }
 }

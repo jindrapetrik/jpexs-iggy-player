@@ -58,6 +58,8 @@ namespace IggyViewer {
         internal int LastAdvancedFrames;
         RuntimeScriptPlan runtimeScripts;
         SharedObjectStorage sharedObjectStorage;
+        ImageLoader imageLoader;
+        internal long LoadedImageBytes {get{return imageLoader==null?0:imageLoader.AllocatedBytes;}}
         internal string StorageDirectory=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"sharedobjects");
         internal int LoaderInfoStageReads {get{return loaderInfo==null?0:loaderInfo.StageReads;}}
         readonly List<Delegate> bindings = new List<Delegate>();
@@ -328,7 +330,8 @@ namespace IggyViewer {
             if(correctLoaderInfo)runtimeCompatibility=new RuntimeCompatibility(module,modernDll,Player,log,CorrectZeroScale);
             if(AudioEnabled&&runtimeScripts!=null&&runtimeScripts.NeedsAudio)soundCompatibility=new SoundCompatibility(this,module,modernDll,log);
             if(correctLoaderInfo)cursorCompatibility=new CursorCompatibility(this,module,modernDll,log);
-            if(runtimeScripts!=null&&runtimeScripts.NeedsSharedObject)sharedObjectStorage=new SharedObjectStorage(this,StorageDirectory,log);
+            if(runtimeScripts!=null&&runtimeScripts.NeedsLoader)imageLoader=new ImageLoader(this,module,modernDll,log);
+            if(runtimeScripts!=null&&(runtimeScripts.NeedsSharedObject||runtimeScripts.NeedsLoader))sharedObjectStorage=new SharedObjectStorage(this,StorageDirectory,log,imageLoader);
             wallClock.Restart();UpdateClock();initialize(Player);
             play(Player);
             if (valid(Player) == 0) throw new InvalidDataException("The movie failed during initialization; see the log.");
@@ -507,6 +510,7 @@ namespace IggyViewer {
             }
             draw(Player);
             if(cursorCompatibility!=null)cursorCompatibility.Prune();
+            if(imageLoader!=null)imageLoader.Prune();
             return valid(Player) != 0;
         }
         void Send(Action<IntPtr> make) {
@@ -588,12 +592,14 @@ namespace IggyViewer {
             pressedKeys.Clear();
             // Global TrueType glyphs can reference player-owned tessellation.
             // Flush while the player is alive, before releasing its memory.
+            if(sharedObjectStorage!=null){sharedObjectStorage.Detach();sharedObjectStorage=null;}
+            if(imageLoader!=null)imageLoader.CancelAll();
             if (Player != IntPtr.Zero) { if(soundCompatibility!=null)soundCompatibility.Detach();flushInstalledFonts();destroy(Player); Player = IntPtr.Zero; }
+            if(imageLoader!=null){imageLoader.Dispose();imageLoader=null;}
             GC.KeepAlive(soundCompatibility);soundCompatibility=null;
             GC.KeepAlive(loaderInfo);loaderInfo=null;
             GC.KeepAlive(runtimeCompatibility);runtimeCompatibility=null;
             GC.KeepAlive(cursorCompatibility);cursorCompatibility=null;
-            if(sharedObjectStorage!=null){sharedObjectStorage.Detach();sharedObjectStorage=null;}
             runtimeScripts=null;
             for(int i=libraries.Count-1;i>=0;i--)libraryDestroy(libraries[i]);
             libraries.Clear();loadedUrls.Clear();
