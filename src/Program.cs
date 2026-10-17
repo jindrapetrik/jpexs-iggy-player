@@ -193,6 +193,7 @@ namespace IggyViewer {
     internal sealed class PlayerForm : Form {
         readonly Native native;
         readonly Log log;
+        readonly Icon windowIcon;
         readonly Canvas canvas=new Canvas();
         readonly ToolStripStatusLabel status=new ToolStripStatusLabel("Open an .iggy file");
         readonly System.Windows.Forms.Timer timer=new System.Windows.Forms.Timer();
@@ -204,6 +205,7 @@ namespace IggyViewer {
         readonly ToolStripMenuItem pause=new ToolStripMenuItem("Pause") {CheckOnClick=true};
         public PlayerForm(Native native,string logPath,Log log) {
             this.native=native;this.log=log;
+            windowIcon=Icon.ExtractAssociatedIcon(Application.ExecutablePath);Icon=windowIcon;
             canvas.RenderFailed=delegate(Exception ex){timer.Stop();log.Write(ex.ToString());status.Text="OpenGL display failed. Select Playback > Renderer > Software.";};
             Text="Iggy Player — native 64-bit runtime";Width=1040;Height=680;
             MenuStrip menu=new MenuStrip();
@@ -286,6 +288,6 @@ namespace IggyViewer {
                 updatingFrame=true;frame.Value=Math.Min(frame.Maximum,Math.Max(1,native.CurrentFrame));updatingFrame=false;
             } catch(Exception ex) {timer.Stop();canvas.SetMovieCursor(false,Cursors.Default);log.Write(ex.ToString());status.Text=ex.Message;}
         }
-        protected override void Dispose(bool disposing) {if(disposing)timer.Dispose();base.Dispose(disposing);}
+        protected override void Dispose(bool disposing) {if(disposing)timer.Dispose();base.Dispose(disposing);if(disposing&&windowIcon!=null)windowIcon.Dispose();}
     }
 }
