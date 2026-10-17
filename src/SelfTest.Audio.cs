@@ -70,6 +70,16 @@ namespace IggyViewer {
                     Check(rms>100,"Audible mixed output for format "+key);
                     Check(AudioPitchCorrelation(mixed,new int[]{440,330,550,440,660,880}[key-49])>.90,"Decoded pitch preserved for format "+key);
                     Check(AudioPosition(native)>20,"SoundChannel position advances for "+key);
+                    if(key==51) {
+                        // The first ADPCM block alone does not catch incorrectly
+                        // concatenated WAV packets. Inspect later output as well.
+                        for(int part=0;part<3;part++) {
+                            AudioWait(native,80);byte[] later=native.AudioSnapshot();
+                            int peak=0;for(int i=0;i+1<later.Length;i+=2)peak=Math.Max(peak,Math.Abs((int)BitConverter.ToInt16(later,i)));
+                            log.Write("ADPCM later output "+part+": RMS="+AudioRms(later).ToString("F2")+", peak="+peak);
+                            Check(peak<1500,"ADPCM remains a quiet tone across block boundaries and the tail");
+                        }
+                    }
                     AudioWait(native,650);
                     Check(native.AudioChannels==0,"Sound ends after its sample count for "+key);
                     Check(ReadValue(native,"completed")==completed+1,"Exactly one SOUND_COMPLETE for "+key);

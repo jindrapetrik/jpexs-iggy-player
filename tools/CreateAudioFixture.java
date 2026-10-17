@@ -1,4 +1,5 @@
 import com.jpexs.decompiler.flash.SWF;
+import com.jpexs.decompiler.flash.SWFInputStream;
 import com.jpexs.decompiler.flash.abc.ABC;
 import com.jpexs.decompiler.flash.abc.avm2.parser.script.AbcIndexing;
 import com.jpexs.decompiler.flash.abc.avm2.parser.script.ActionScript3Parser;
@@ -6,12 +7,37 @@ import com.jpexs.decompiler.flash.iggy.IggyFile;
 import com.jpexs.decompiler.flash.iggy.conversion.SwfToIggyConvertor;
 import com.jpexs.decompiler.flash.tags.*;
 import com.jpexs.decompiler.flash.types.*;
+import com.jpexs.decompiler.flash.types.sound.SoundFormat;
 import com.jpexs.helpers.ByteArrayRange;
 import java.io.*;
 import java.nio.file.*;
 
 // Optional regeneration; normal playback and tests need neither Java nor FFDec.
 public class CreateAudioFixture {
+    static void validateAdpcm(byte[] data) throws IOException {
+        byte[] pcm = new SoundFormat(1, 22050, false).getDecoder().decode(new SWFInputStream(null, data));
+        int count = pcm.length / 2;
+        if (Math.abs(count - 8820) > 8) throw new IOException("Unexpected ADPCM duration: " + count);
+        // Check every part, including the second/third blocks and the tail.
+        for (int at = 0; at < count; at += 1024) {
+            int length = Math.min(1024, count - at);
+            double energy = 0, sum = 0, cross = 0, a = 0, b = 0;
+            for (int i = 0; i < length; i++) {
+                int p = (at + i) * 2, value = (short) ((pcm[p] & 255) | (pcm[p + 1] << 8));
+                if (Math.abs(value) > 1000) throw new IOException("ADPCM peak exceeds quiet tone at " + (at + i));
+                energy += value * value; sum += value;
+                if (i >= 40) {
+                    int q = p - 80, previous = (short) ((pcm[q] & 255) | (pcm[q + 1] << 8));
+                    cross += value * previous; a += value * value; b += previous * previous;
+                }
+            }
+            double rms = Math.sqrt(energy / length), correlation = cross / Math.sqrt(a * b);
+            if (rms < 400 || rms > 700 || Math.abs(sum / length) > 100 || !(correlation > .98)) {
+                throw new IOException("Invalid 550 Hz ADPCM tone at " + at + ": RMS=" + rms + ", mean=" + sum / length + ", correlation=" + correlation);
+            }
+        }
+        System.out.println("Validated complete quiet 550 Hz ADPCM tone: " + count + " decoded samples");
+    }
     static byte[] pcm(int rate, int bits, int frequency) throws IOException {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         for (int i = 0; i < rate * 2 / 5; i++) {
@@ -41,7 +67,9 @@ public class CreateAudioFixture {
         FileAttributesTag attributes = new FileAttributesTag(swf); attributes.actionScript3 = true; swf.addTag(attributes);
         sound(swf, 1, 3, 2, 16, false, pcm(22050, 16, 440));
         sound(swf, 2, 3, 1, 8, false, pcm(11025, 8, 330));
-        sound(swf, 3, 1, 2, 16, false, Files.readAllBytes(directory.resolve("tone-adpcm.bin")));
+        byte[] adpcm = Files.readAllBytes(directory.resolve("tone-adpcm.bin"));
+        validateAdpcm(adpcm);
+        sound(swf, 3, 1, 2, 16, false, adpcm);
         sound(swf, 4, 2, 3, 16, true, mp3(directory.resolve("tone-stereo.mp3")));
         sound(swf, 5, 2, 2, 16, false, mp3(directory.resolve("tone-mono.mp3")));
         sound(swf, 6, 0, 3, 16, false, pcm(44100, 16, 880));
