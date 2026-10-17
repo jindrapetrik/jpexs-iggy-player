@@ -37,10 +37,10 @@ public class CreateDomainLinkingFixture {
         Path directory = Path.of(args[0]); ABC primaryLibrary = null;
         for (int variant = 1; variant <= 2; variant++) {
             Path dir = directory.resolve("link" + variant); Files.createDirectories(dir);
-            SWF nested = movie(); compile(nested, null, "package linklib { public class NestedState { public static var count:uint = " + (40 + variant) + "; public function NestedState() { } } }");
+            SWF nested = movie(); compile(nested, null, "package linklib { import flash.system.ApplicationDomain; public class NestedState { public static var initializations:uint = 0; public static var count:uint = initialize(); public static var owner:ApplicationDomain = ApplicationDomain.currentDomain; private static function initialize():uint { initializations++; return " + (40 + variant) + "; } public function NestedState() { } } }");
             write(nested, dir.resolve("nested"));
             SWF library = movie(); compile(library, null,
-                    "package linklib { import flash.system.ApplicationDomain; public class ImportedState { public static var count:uint = " + (variant == 1 ? 17 : 29) + "; public static var owner:ApplicationDomain = ApplicationDomain.currentDomain; public function ImportedState() { } public static function current():ApplicationDomain { return ApplicationDomain.currentDomain; } } }",
+                    "package linklib { import flash.system.ApplicationDomain; public class ImportedState { public static var initializations:uint = 0; public static var count:uint = initialize(); private static function initialize():uint { initializations++; return " + (variant == 1 ? 17 : 29) + "; } public static var owner:ApplicationDomain = ApplicationDomain.currentDomain; public function ImportedState() { } public static function current():ApplicationDomain { return ApplicationDomain.currentDomain; } } }",
                     "package linklib { import flash.display.Shape; public class ImportedTile extends Shape { public var mark:uint = " + variant + "; public function ImportedTile() { super(); } } }");
             if (variant == 1) primaryLibrary = abc(library);
             DefineShape3Tag shape = new DefineShape3Tag(library); shape.shapeId = 1; shape.shapeBounds = new RECT(0, 800, 0, 800);
@@ -67,7 +67,7 @@ public class CreateDomainLinkingFixture {
                 Files.readString(directory.resolve("scripts/DomainLinkMain.as")));
         root(main, "DomainLinkMain"); write(main, directory.resolve("linking"));
         SWF importedRoot = movie(); compile(importedRoot, primaryLibrary,
-                "package { import flash.display.MovieClip; import flash.system.ApplicationDomain; import linklib.ImportedState; public class RootImportCheck extends MovieClip { public var rootImports:Boolean; public var stateCount:uint; public var nestedCount:uint; public var ownerOk:Boolean; public function RootImportCheck() { super(); stop(); var direct:Class = ImportedState; var domain:ApplicationDomain = loaderInfo.applicationDomain; var state:Class = domain.getDefinition('linklib.ImportedState') as Class; var nested:Class = domain.getDefinition('linklib.NestedState') as Class; stateCount = state['count']; nestedCount = nested['count']; ownerOk = state['owner'] === domain; rootImports = stateCount == 17 && nestedCount == 41 && direct === state && domain.getQualifiedDefinitionNames().indexOf('linklib::ImportedState') >= 0 && !domain.parentDomain.hasDefinition('linklib.ImportedState'); } } }");
+                Files.readString(directory.resolve("scripts/RootImportCheck.as")));
         root(importedRoot, "RootImportCheck"); imports(importedRoot, "link1/library.swf");
         write(importedRoot, directory.resolve("root-imports"));
     }

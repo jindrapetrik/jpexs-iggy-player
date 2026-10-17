@@ -20,10 +20,16 @@ namespace IggyViewer {
                     Call(native,"","afterGc");Check(KeyFlag(native,"gcLookup"),"Domain definitions remain valid after native and managed GC");
                     native.Close();
                 }
-                native.Open(Path.Combine(Path.GetDirectoryName(movie),"domains","root-imports.iggy"),550,400);
-                log.Write("Root imports: state="+ReadValue(native,"stateCount")+", nested="+ReadValue(native,"nestedCount")+", owner="+KeyFlag(native,"ownerOk"));
-                Check(KeyFlag(native,"rootImports"),"Startup imports are registered in the main domain");
-                native.Close();
+                for(int cycle=0;cycle<2;cycle++) {
+                    native.Open(Path.Combine(Path.GetDirectoryName(movie),"domains","root-imports.iggy"),550,400);
+                    log.Write("Root imports: state="+ReadValue(native,"stateCount")+", nested="+ReadValue(native,"nestedCount")+", owner="+KeyFlag(native,"ownerOk"));
+                    Check(KeyFlag(native,"rootImports"),"Startup imports are registered in the main domain");
+                    Check(KeyFlag(native,"ownerOk"),"Main and nested startup static initializers see the main domain before the document constructor");
+                    Check(KeyFlag(native,"onceOk"),"Startup static initializers execute exactly once");
+                    native.Bind<Native.VoidPI>("IggyPlayerGarbageCollect")(native.Player,100);GC.Collect();GC.WaitForPendingFinalizers();
+                    Call(native,"","afterGc");Check(KeyFlag(native,"gcLookup"),"Startup static values survive lookup and GC without reinitialization");
+                    native.Close();
+                }
                 native.Open(Path.Combine(Path.GetDirectoryName(movie),"domains","info-only.iggy"),550,400);
                 Check(KeyFlag(native,"infoDomain"),"LoaderInfo.applicationDomain alone enables the domain bridge");
                 native.Close();
@@ -48,7 +54,7 @@ namespace IggyViewer {
             }
             Check(Hash(File.ReadAllBytes(movie))==hash,"Domain source remains unchanged");
             foreach(string message in log.Messages)Check(message.IndexOf("Uncaught exception",StringComparison.Ordinal)<0,"No application domain AS3 exceptions");
-            log.Write("PASS: LoaderContext domains/parameters/allowCodeImport, isolated nested imports, parent-first and first-definition class binding, statics, timeline assets, reflection, callback domains, GC and reopen.");
+            log.Write("PASS: LoaderContext domains/parameters/allowCodeImport, isolated nested imports, parent-first and first-definition class binding, startup host API static initializers, timeline assets, reflection, callback domains, GC and reopen.");
         }
     }
 }

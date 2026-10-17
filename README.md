@@ -194,9 +194,10 @@ classes retain their original definitions. This import isolation applies to
 movies loaded through Loader. Use a domain with the system parent
 to load a movie whose document class has the same name as the parent's class.
 Reflection of script functions/variables and domainMemory are unavailable.
-Static fields initialized from host compatibility APIs in libraries imported at
-startup are not yet reliable. In particular, storing ApplicationDomain.currentDomain
-in such a static field can produce null.
+When Loader/domain compatibility is needed, startup class-symbol binding runs
+after host compatibility callbacks are installed.
+Static initializers in the main movie and its imported libraries can store
+ApplicationDomain.currentDomain before the document constructor runs.
 Initializers in dynamically loaded libraries run in the selected domain.
 getQualifiedDefinitionNames currently returns
 an Array of local class names, since this DLL does not provide Vector.

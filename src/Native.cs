@@ -315,7 +315,9 @@ namespace IggyViewer {
             byte* options = stackalloc byte[80];
             for(int i=0;i<80;i++)options[i]=0;
             if(runtimeScripts!=null&&runtimeScripts.NeedsLoader)compilerLifetime=new CompilerLifetime(module,modernDll);
-            fixed (byte* data = bytes) Player = create((IntPtr)data, (uint)bytes.Length, (IntPtr)options);
+            bool deferClasses=runtimeScripts!=null&&runtimeScripts.NeedsLoader;
+            using(StartupClassBinding deferred=deferClasses?new StartupClassBinding(module,modernDll):null)
+                fixed (byte* data = bytes) Player = create((IntPtr)data, (uint)bytes.Length, (IntPtr)options);
             if (Player == IntPtr.Zero) throw new InvalidDataException("The Iggy DLL rejected this file. See the log for details.");
             NormalizeTimelineMatrices(Player);
             NormalizeEmptyStyleTables(Player);
@@ -337,7 +339,9 @@ namespace IggyViewer {
             if(runtimeScripts!=null&&runtimeScripts.NeedsLoader)imageLoader=new ImageLoader(this,module,modernDll,log);
             if(imageLoader!=null&&loaderInfo!=null)loaderInfo.LoadedInfo=imageLoader.LookupLoaderInfo;
             if(runtimeScripts!=null&&(runtimeScripts.NeedsSharedObject||runtimeScripts.NeedsLoader))sharedObjectStorage=new SharedObjectStorage(this,StorageDirectory,log,imageLoader);
-            wallClock.Restart();UpdateClock();initialize(Player);
+            wallClock.Restart();UpdateClock();
+            if(deferClasses)MovieFunction<VoidP>(0x42d0,0x1cd0)(Player);
+            initialize(Player);
             PatchDeferredDomainClasses();
             play(Player);
             if (valid(Player) == 0) throw new InvalidDataException("The movie failed during initialization; see the log.");

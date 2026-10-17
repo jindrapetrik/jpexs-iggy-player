@@ -8,7 +8,9 @@ using System.Text;
 namespace IggyViewer {
     internal unsafe sealed partial class Native {
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int LoadMovieAbc(IntPtr player,IntPtr library,int index,IntPtr options);
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr MovieClass(IntPtr vm,IntPtr name);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr MovieIntern(IntPtr vm,int length,IntPtr text,int create);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr MoviePackageName(IntPtr vm,IntPtr name,IntPtr package);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr MoviePublicName(IntPtr vm,IntPtr name,IntPtr ns,int create);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr Arena(int size,int growth,IntPtr allocator);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr MovieAlloc(IntPtr player,IntPtr owner,uint size,int tag,IntPtr name);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr LegacyMovieAlloc(IntPtr player,IntPtr owner,uint size,int tag);
@@ -68,9 +70,29 @@ namespace IggyViewer {
             }
             Marshal.WriteInt32(vm,172,used);
         }
+        IntPtr MovieName(IntPtr vm,string name) {
+            name=DomainName(name);int split=name.LastIndexOf('.');
+            IntPtr text=Marshal.StringToHGlobalUni(name);
+            try {
+                MovieIntern intern=MovieFunction<MovieIntern>(0x76b50,0x7bda0);
+                IntPtr simple=intern(vm,name.Length-split-1,IntPtr.Add(text,2*(split+1)),1);
+                if(split>=0)return MovieFunction<MoviePackageName>(0x77020,0x7c260)(vm,simple,intern(vm,split,text,1));
+                return MovieFunction<MoviePublicName>(0x76fe0,0x7c200)(vm,simple,Marshal.ReadIntPtr(vm,modernDll?3504:3480),1);
+            } finally {Marshal.FreeHGlobal(text);}
+        }
         IntPtr MovieLookup(IntPtr vm,string name) {
-            IntPtr text=Marshal.StringToHGlobalUni(name.StartsWith("::",StringComparison.Ordinal)?name.Substring(2):name.Replace("::","."));
-            try {return MovieFunction<MovieClass>(0x2d80,0x1080)(vm,text);}finally {Marshal.FreeHGlobal(text);}
+            // The DLL's class lookup resets the VM and executes lazy scripts.
+            // Metadata probing must be safe even inside a host VM callback.
+            IntPtr key=MovieName(vm,name);
+            if(key.ToInt64()<=1)return IntPtr.Zero;
+            uint hash=(uint)Marshal.ReadInt32(key),mask=(uint)Marshal.ReadInt32(vm,164),index=hash&mask,step=(hash+(hash>>11))|1;
+            IntPtr table=Marshal.ReadIntPtr(vm,144);
+            for(uint probe=0;probe<=mask;probe++,index=(index+step)&mask) {
+                IntPtr found=Marshal.ReadIntPtr(table,(int)index*16);
+                if(found==key)return Marshal.ReadIntPtr(table,(int)index*16+8);
+                if(found==IntPtr.Zero)break;
+            }
+            return IntPtr.Zero;
         }
         IntPtr BuiltinMovieClip(IntPtr vm) {
             int count=Marshal.ReadInt32(vm,modernDll?9648:9624);

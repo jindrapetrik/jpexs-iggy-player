@@ -136,9 +136,9 @@ The library dependencies use zero-symbol ImportAssets2 records; the tile is
 resolved through its AS3 SymbolClass, rather than an ExportAssets table.
 root-imports.iggy also covers imports at startup and delayed registration of user
 classes in the main domain rather than the system domain.
-Its ownerOk diagnostic records the remaining startup-static-initializer issue
-described in the player README; the dynamic-import tests require that initializer
-to observe the selected domain.
+Main and nested imported static initializers must observe the main domain before
+the document constructor. Counters and mutated static fields verify initialization
+occurs once, survives reflection and GC, and starts fresh when the movie reopens.
 
 ## Filters
 
