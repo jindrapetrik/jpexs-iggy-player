@@ -25,6 +25,7 @@ namespace IggyViewer {
         readonly List<MovieRoot> roots=new List<MovieRoot>();
         MovieTicket constructing;
         sealed class Job {
+            internal MovieActivity.Scope Owner;
             internal string Token,Status="pending",Url;
             internal int Width,Height,Bytes;
             internal int[] Pixels;
@@ -127,8 +128,9 @@ namespace IggyViewer {
             lock(sync) {
                 if(closed)return "error|Movie closed";
                 if(operation=="__iggy_image_start") {
+                    if(native.Activity!=null&&native.Activity.Current!=null&&native.Activity.Current.Stopped)return "error|The containing movie was unloaded";
                     if(jobs.Count>=32)return "error|Too many pending image loads";
-                    Job job=new Job {Token=Guid.NewGuid().ToString("N"),Url=value,BaseFile=baseUrl};jobs.Add(job.Token,job);
+                    Job job=new Job {Token=Guid.NewGuid().ToString("N"),Url=value,BaseFile=baseUrl,Owner=native.Activity==null?null:native.Activity.Current};jobs.Add(job.Token,job);
                     ThreadPool.QueueUserWorkItem(delegate {decoders.Wait();try {Decode(job);}finally {decoders.Release();}});return job.Token;
                 }
                 Job current;if(!jobs.TryGetValue(value,out current))return "error|Image load was cancelled";
@@ -247,6 +249,9 @@ namespace IggyViewer {
             IntPtr result=originalInfoConstructor(context);
             if(Marshal.ReadInt32(context,16)>0) {
                 IntPtr arguments=Marshal.ReadIntPtr(context,24),info=Marshal.ReadIntPtr(arguments),owner=Marshal.ReadIntPtr(arguments,8);
+                if(Marshal.ReadInt32(context,16)>=4&&MovieOperation(owner)) {
+                    native.Activity.Stop(Marshal.ReadIntPtr(arguments,24),native.Activity.True(Marshal.ReadIntPtr(arguments,32)));return result;
+                }
                 string token=Token(owner);
                 if(token!=null&&Marshal.ReadInt32(context,16)>=2) {
                     Job job;if(jobs.TryGetValue(token,out job)&&job.Movie!=null&&!job.Cancelled) {
@@ -256,6 +261,11 @@ namespace IggyViewer {
                     infos.Add(new InfoOwner {Info=reference(native.Player,info,1),Owner=reference(native.Player,owner,1),BaseFile=constructing==null?null:constructing.Movie.FileName});
             }
             return result;
+        }
+        static bool MovieOperation(IntPtr value) {
+            if((value.ToInt64()&3)!=1||value.ToInt64()<65536||Marshal.ReadByte(IntPtr.Subtract(value,1))!=8)return false;
+            IntPtr text=Marshal.ReadIntPtr(value,7);int length=Marshal.ReadInt32(text,7);
+            return length==22&&Marshal.PtrToStringUni(IntPtr.Add(text,11),length)=="__iggy_unload_and_stop";
         }
         static string Token(IntPtr value) {
             if((value.ToInt64()&3)!=1||Marshal.ReadByte(IntPtr.Subtract(value,1))!=8)return null;
@@ -269,6 +279,7 @@ namespace IggyViewer {
                 foreach(MovieRoot root in roots)if(root.Instance==instance&&Marshal.ReadIntPtr(root.Root).ToInt64()!=7)return root;
             return null;
         }
+        internal bool IsMovieRoot(IntPtr value) {foreach(MovieRoot root in roots)if(Marshal.ReadIntPtr(root.Root)==value)return true;return false;}
         internal IntPtr LookupLoaderInfo(IntPtr arguments) {
             MovieRoot root=FindRoot(Marshal.ReadIntPtr(arguments));
             if(root==null)return IntPtr.Zero;IntPtr info=Marshal.ReadIntPtr(root.Info);return info.ToInt64()==7?IntPtr.Zero:info;
@@ -292,6 +303,7 @@ namespace IggyViewer {
             return originalLoaderUrl(context);
         }
         IntPtr ConstructDisplay(IntPtr context,Builtin original) {
+            if(native.Activity!=null)native.Activity.Track(Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,24)));
             IntPtr result=original(context);
             if(constructing!=null) {
                 IntPtr value=Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,24)),instance=Marshal.ReadIntPtr(value,39);
@@ -304,11 +316,13 @@ namespace IggyViewer {
             IntPtr receiver=Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,24));
             foreach(MovieTicket ticket in tickets.ToArray())if(Marshal.ReadIntPtr(ticket.Request)==receiver) {
                 MovieTicket previous=constructing;constructing=ticket;
+                MovieActivity.Scope previousScope=native.Activity.Current;
+                native.Activity.Current=new MovieActivity.Scope {Parent=previousScope};
                 try {
                     IntPtr value=native.InstantiateMovie(ticket.Movie);Marshal.WriteIntPtr(Marshal.ReadIntPtr(context,8),value);
                     Job job;if(jobs.TryGetValue(ticket.Token,out job))job.Uploaded=true;
                 } catch(Exception ex) {log.Write("Loader movie construction failed: "+ex.Message);Marshal.WriteIntPtr(Marshal.ReadIntPtr(context,8),nullValue);}
-                finally {constructing=previous;}
+                finally {constructing=previous;native.Activity.Current=previousScope;}
                 return IntPtr.Zero;
             }
             return originalContent(context);
@@ -348,6 +362,11 @@ namespace IggyViewer {
             foreach(InfoOwner info in infos){freeReference(native.Player,info.Info);freeReference(native.Player,info.Owner);}infos.Clear();
             foreach(MovieTicket ticket in tickets){freeReference(native.Player,ticket.Request);freeReference(native.Player,ticket.Info);}tickets.Clear();
             foreach(MovieRoot root in roots){freeReference(native.Player,root.Root);freeReference(native.Player,root.Info);}roots.Clear();
+        }
+        internal void CancelScope(MovieActivity.Scope scope) {
+            lock(sync)foreach(Job job in new List<Job>(jobs.Values))if(MovieActivity.Within(job.Owner,scope)) {
+                job.Cancelled=true;job.Pixels=null;job.MovieBytes=null;jobs.Remove(job.Token);
+            }
         }
         public void Dispose() {
             // Native bitmap clones and cached textures share these definitions.

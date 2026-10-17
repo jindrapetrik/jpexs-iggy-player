@@ -18,6 +18,7 @@ namespace IggyViewer {
         int cursor;
         public readonly HashSet<string> References=new HashSet<string>(StringComparer.Ordinal);
         public readonly HashSet<string> Definitions=new HashSet<string>(StringComparer.Ordinal);
+        public readonly HashSet<string> Classes=new HashSet<string>(StringComparer.Ordinal);
         int Byte(){if(cursor>=bytes.Length)throw new InvalidDataException("Truncated runtime ABC.");return bytes[cursor++];}
         uint Var(){uint v=0;for(int i=0;i<5;i++){int b=Byte();v|=(uint)(b&127)<<(i*7);if((b&128)==0)return v;}throw new InvalidDataException("Invalid ABC integer.");}
         int Count(){uint n=Var();if(n>1000000)throw new InvalidDataException("ABC count limit exceeded.");return (int)n;}
@@ -29,9 +30,10 @@ namespace IggyViewer {
             if(namespaceKinds[n.Ns]!=0x16&&namespaceKinds[n.Ns]!=0x17)return null;
             return strings[namespaces[n.Ns]]+"::"+strings[n.Text];
         }
-        void Traits() {
+        void Traits(bool global=false) {
             for(int i=Count();i>0;i--) {
-                Var();int kind=Byte();
+                int name=Count(),kind=Byte();
+                if(global){string qualified=Qualified(name);if(qualified!=null)Definitions.Add(qualified);}
                 switch(kind&15) {
                     case 0:case 6:Var();Var();if(Var()!=0)Byte();break;
                     case 1:case 2:case 3:case 4:case 5:Var();Var();break;
@@ -67,10 +69,13 @@ namespace IggyViewer {
                 if((flags&128)!=0)for(int i=0;i<parameters;i++)Var();
             }
             for(int n=Count();n>0;n--){Var();int pairs=Count();for(int i=0;i<pairs*2;i++)Var();}
-            for(int n=Count();n>0;n--) {
-                string q=Qualified(Count());if(q!=null)Definitions.Add(q);Var();int flags=Byte();if((flags&8)!=0)Var();
+            int classes=Count();
+            for(int n=classes;n>0;n--) {
+                string q=Qualified(Count());if(q!=null){Definitions.Add(q);Classes.Add(q);}Var();int flags=Byte();if((flags&8)!=0)Var();
                 for(int i=Count();i>0;i--)Var();Var();Traits();
             }
+            for(int n=classes;n>0;n--){Var();Traits();}
+            for(int n=Count();n>0;n--){Var();Traits(true);}
         }
         static void WriteVar(BinaryWriter w,int n){uint value=(uint)n;while(value>=128){w.Write((byte)(value|128));value>>=7;}w.Write((byte)value);}
         public byte[] Redirect(bool loader,bool fileList) {
@@ -105,10 +110,10 @@ namespace IggyViewer {
     }
 
     internal sealed class RuntimeScriptPlan {
-        readonly bool shared,loader,fileList,audio;
+        readonly bool shared,loader,fileList,audio,timers;
         internal bool NeedsSharedObject {get{return shared;}}
         internal bool NeedsAudio {get{return audio||loader;}}
-        internal bool NeedsLoader {get{return loader;}}
+        internal bool NeedsLoader {get{return loader||timers;}}
         public RuntimeScriptPlan(IEnumerable<byte[]> sources) {
             HashSet<string> references=new HashSet<string>(StringComparer.Ordinal),definitions=new HashSet<string>(StringComparer.Ordinal);
             foreach(byte[] source in sources)foreach(byte[] abc in Container.ReadAbcs(source)) {
@@ -116,6 +121,7 @@ namespace IggyViewer {
             }
             shared=references.Contains("flash.net::SharedObject")&&!definitions.Contains("flash.net::SharedObject");
             loader=references.Contains("flash.display::Loader")&&!definitions.Contains("flash.display::Loader")&&!definitions.Contains("flash.net::URLRequest")&&!definitions.Contains("flash.events::IOErrorEvent");
+            foreach(string timer in new string[]{"setInterval","setTimeout","clearInterval","clearTimeout"})if(references.Contains("flash.utils::"+timer)&&!definitions.Contains("flash.utils::"+timer))timers=true;
             shared|=loader&&!definitions.Contains("flash.net::SharedObject");
             fileList=references.Contains("flash.net::FileReferenceList")&&!definitions.Contains("flash.net::FileReferenceList");
             audio=references.Contains("flash.media::Sound")||references.Contains("flash.media::SoundChannel");
@@ -123,6 +129,7 @@ namespace IggyViewer {
             if(definitions.Contains("com.jpexs.iggy.runtime::HostLoader")||definitions.Contains("com.jpexs.iggy.runtime::HostURLRequest")||definitions.Contains("com.jpexs.iggy.runtime::HostLoaderInfo")||definitions.Contains("com.jpexs.iggy.runtime::HostIOErrorEvent")||definitions.Contains("com.jpexs.iggy.runtime::HostFileReferenceList")||definitions.Contains("com.jpexs.iggy.runtime::HostLoadedBitmap")||definitions.Contains("com.jpexs.iggy.runtime::HostProgressEvent")||definitions.Contains("com.jpexs.iggy.runtime::HostMovieRequest"))
                 throw new InvalidDataException("Movie conflicts with the Iggy runtime compatibility namespace.");
             if(shared&&definitions.Contains("com.jpexs.iggy.runtime::HostCodec"))throw new InvalidDataException("Movie conflicts with the SharedObject codec namespace.");
+            if(definitions.Contains("com.jpexs.iggy.runtime::HostTimers")||definitions.Contains("com.jpexs.iggy.runtime::HostTimerTask"))throw new InvalidDataException("Movie conflicts with the host timer namespace.");
         }
         static byte[] Resource(string name) {
             using(Stream stream=Assembly.GetExecutingAssembly().GetManifestResourceStream(name)) {
@@ -131,11 +138,11 @@ namespace IggyViewer {
             }
         }
         public byte[] Apply(byte[] source,bool main,Log log) {
-            if(!shared&&!loader&&!fileList&&!audio)return source;
+            if(!shared&&!loader&&!fileList&&!audio&&!timers)return source;
             List<byte[]> abcs=new List<byte[]>();
             if(main) {
                 if(shared)abcs.Add(Resource("IggyViewer.SharedObject.abc"));
-                if(loader||fileList)abcs.Add(Resource("IggyViewer.Loader.abc"));
+                if(loader||fileList||timers)abcs.Add(Resource("IggyViewer.Loader.abc"));
                 if(audio||loader)abcs.Add(Resource("IggyViewer.Audio.abc"));
             }
             bool changed=abcs.Count!=0;

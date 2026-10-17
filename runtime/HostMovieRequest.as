@@ -4,8 +4,8 @@ package com.jpexs.iggy.runtime {
     import flash.events.Event;
     public class HostMovieRequest extends LoaderInfo {
         private var info:LoaderInfo;
-        public function HostMovieRequest(token:String, owner:LoaderInfo) {
-            super(token, owner); info = owner;
+        public function HostMovieRequest(token:String, owner:LoaderInfo, target:DisplayObject = null, gc:Boolean = false) {
+            super(token, owner, target, gc); info = owner;
         }
         public function retain(movie:DisplayObject):void {
             // An AS3 edge keeps LoaderInfo alive with retained content without

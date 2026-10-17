@@ -86,6 +86,14 @@ java -cp "tools;$classpath" CreateMovieLoaderFixture test-data/as3.swf test-data
 
 Regenerate the Loader image fixture first if loader/colors.png is absent.
 
+The same fixture now tests unloadAndStop with constructor and callback-created
+timers, setInterval/setTimeout and their clear functions, arguments, bound and
+anonymous Stage/frame listeners, nested and detached clips, recursive Loader
+cleanup, GC hints and pixel reclamation. A timer callback can unload its own
+movie without interrupting the parent or restarting background activity.
+The optional -TestAudio suite also checks separate parent/child AS3 channels
+and looping timeline voices; unloading one instance keeps the others playing.
+
 ## Audio
 
 The audio.swf and audio.iggy fixtures contain generated sine tones in PCM8,

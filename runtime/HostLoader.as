@@ -1,6 +1,7 @@
 package com.jpexs.iggy.runtime {
     import flash.display.BitmapData;
     import flash.display.DisplayObject;
+    import flash.display.DisplayObjectContainer;
     import flash.display.Sprite;
     import flash.display.MovieClip;
     import flash.display.LoaderInfo;
@@ -115,7 +116,25 @@ package com.jpexs.iggy.runtime {
                 info.dispatchEvent(new Event(Event.UNLOAD));
             }
         }
-        public function unloadAndStop(gc:Boolean = true):void { unload(); }
+        public function unloadAndStop(gc:Boolean = true):void {
+            var serial:uint = generation;
+            var previous:DisplayObject = loaded;
+            if (loaded != null) new HostMovieRequest("__iggy_unload_and_stop", info, loaded, gc);
+            if (loaded != null) stopDescendants(loaded, gc);
+            HostTimers.prune();
+            if (serial != generation || loaded !== previous) return;
+            unload();
+        }
+        private static function stopDescendants(object:DisplayObject, gc:Boolean):void {
+            if (object is MovieClip) MovieClip(object).stop();
+            if (!(object is DisplayObjectContainer)) return;
+            var container:DisplayObjectContainer = DisplayObjectContainer(object);
+            for (var i:int = 0; i < container.numChildren; i++) {
+                var child:DisplayObject = container.getChildAt(i);
+                if (child is HostLoader) HostLoader(child).unloadAndStop(gc);
+                else stopDescendants(child, gc);
+            }
+        }
         public function get content():DisplayObject { return loaded; }
         public function get contentLoaderInfo():LoaderInfo { return info; }
     }

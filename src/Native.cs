@@ -60,6 +60,7 @@ namespace IggyViewer {
         SharedObjectStorage sharedObjectStorage;
         ImageLoader imageLoader;
         CompilerLifetime compilerLifetime;
+        internal MovieActivity Activity;
         internal long LoadedImageBytes {get{return imageLoader==null?0:imageLoader.AllocatedBytes;}}
         internal string StorageDirectory=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"sharedobjects");
         internal int LoaderInfoStageReads {get{return loaderInfo==null?0:loaderInfo.StageReads;}}
@@ -332,6 +333,7 @@ namespace IggyViewer {
             if(correctLoaderInfo)runtimeCompatibility=new RuntimeCompatibility(module,modernDll,Player,log,CorrectZeroScale);
             if(AudioEnabled&&runtimeScripts!=null&&runtimeScripts.NeedsAudio)soundCompatibility=new SoundCompatibility(this,module,modernDll,log);
             if(correctLoaderInfo)cursorCompatibility=new CursorCompatibility(this,module,modernDll,log);
+            if(runtimeScripts!=null&&runtimeScripts.NeedsLoader)Activity=new MovieActivity(this,module,modernDll);
             if(runtimeScripts!=null&&runtimeScripts.NeedsLoader)imageLoader=new ImageLoader(this,module,modernDll,log);
             if(imageLoader!=null&&loaderInfo!=null)loaderInfo.LoadedInfo=imageLoader.LookupLoaderInfo;
             if(runtimeScripts!=null&&(runtimeScripts.NeedsSharedObject||runtimeScripts.NeedsLoader))sharedObjectStorage=new SharedObjectStorage(this,StorageDirectory,log,imageLoader);
@@ -520,6 +522,11 @@ namespace IggyViewer {
             draw(Player);
             if(cursorCompatibility!=null)cursorCompatibility.Prune();
             if(imageLoader!=null)imageLoader.Prune();
+            if(Activity!=null) {
+                Activity.AfterTick();
+                if(Activity.CollectRequested){Activity.CollectRequested=false;Bind<VoidPI>("IggyPlayerGarbageCollect")(Player,100);if(imageLoader!=null)imageLoader.Prune();}
+                Activity.Prune();
+            }
             return valid(Player) != 0;
         }
         void Send(Action<IntPtr> make) {
@@ -603,11 +610,13 @@ namespace IggyViewer {
             // Flush while the player is alive, before releasing its memory.
             if(sharedObjectStorage!=null){sharedObjectStorage.Detach();sharedObjectStorage=null;}
             if(imageLoader!=null)imageLoader.CancelAll();
+            if(Activity!=null)Activity.Detach();
             DetachMovieClasses();
             if(compilerLifetime!=null){compilerLifetime.Dispose();compilerLifetime=null;}
             if (Player != IntPtr.Zero) { if(soundCompatibility!=null)soundCompatibility.Detach();flushInstalledFonts();destroy(Player); Player = IntPtr.Zero; }
             ReleaseMovieDefinitions();
             if(imageLoader!=null){imageLoader.Dispose();imageLoader=null;}
+            if(Activity!=null){Activity.KeepAlive();Activity=null;}
             GC.KeepAlive(soundCompatibility);soundCompatibility=null;
             GC.KeepAlive(loaderInfo);loaderInfo=null;
             GC.KeepAlive(runtimeCompatibility);runtimeCompatibility=null;

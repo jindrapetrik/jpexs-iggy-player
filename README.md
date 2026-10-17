@@ -157,8 +157,15 @@ OPEN, PROGRESS, INIT and COMPLETE are dispatched on contentLoaderInfo, in that
 order; missing, invalid and unsupported resources dispatch IOErrorEvent.
 close() cancels pending work without removing loaded content. unload() and
 unloadAndStop() cancel pending work, remove content and dispatch UNLOAD when
-content was present; loaded root timelines are stopped. unloadAndStop() currently
-does not perform Flash's additional timer, descendant and sound cleanup.
+content was present; loaded root timelines are stopped. unloadAndStop() also
+stops descendant and detached movie clips, owned timers and interval/timeout
+callbacks, removes frame/broadcast and Stage listeners, cancels nested pending
+loads and stops that instance's AS3 and timeline sounds. Nested Loaders unload
+their content as well. Other loaded instances and the parent keep running.
+The gc argument requests deferred native collection after AS3 dispatch;
+externally retained BitmapData clones keep their pixel storage.
+setInterval/setTimeout and their clear functions are implemented through native
+Timers, including callback arguments and movies that do not use Loader.
 Event listeners may close, unload or replace a request;
 stale requests do not dispatch later completion events. Pixel and texture
 storage is reclaimed when native GC collects the last BitmapData clone.
@@ -253,6 +260,8 @@ IggyPlayer.exe --self-test-loaderinfo test-data/loaderinfo.iggy output-directory
 IggyPlayer.exe --self-test-runtime test-data/runtime.iggy output-directory
 IggyPlayer.exe --self-test-loader test-data/loader.iggy output-directory
 IggyPlayer.exe --self-test-movie-loader test-data/movie-loader.iggy output-directory
+IggyPlayer.exe --self-test-unload test-data/movie-loader.iggy output-directory
+IggyPlayer.exe --self-test-unload-audio test-data/movie-loader.iggy output-directory
 IggyPlayer.exe --self-test-audio test-data/audio.iggy output-directory
 IggyPlayer.exe --self-test-fixup-partitions test-data/graphics.iggy output-directory
 IggyPlayer.exe --self-test-zero-scale test-data/zero-scale.iggy output-directory

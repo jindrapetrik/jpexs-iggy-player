@@ -98,7 +98,7 @@ namespace IggyViewer {
             NormalizeTimelineMatrices(generic);NormalizeEmptyStyleTables(generic);NormalizeAudio(generic);InstallTextures(generic,file);
             LoadedMovie movie=new LoadedMovie {FileName=Path.GetFullPath(file),Library=id,Width=Marshal.ReadInt32(generic,16),Height=Marshal.ReadInt32(generic,20)};
             HashSet<IntPtr> excluded=new HashSet<IntPtr>();
-            foreach(byte[] source in sources)foreach(byte[] abc in Container.ReadAbcs(source))foreach(string definition in new RuntimeAbc(abc).Definitions) {
+            foreach(byte[] source in sources)foreach(byte[] abc in Container.ReadAbcs(source))foreach(string definition in new RuntimeAbc(abc).Classes) {
                 IntPtr metadata=MovieLookup(vm,definition);
                 if(metadata!=IntPtr.Zero)excluded.Add(Marshal.ReadIntPtr(metadata,96));
             }
@@ -120,6 +120,7 @@ namespace IggyViewer {
                 MovieReference reference=Bind<MovieReference>("IggyValueRefFromTempRef");
                 foreach(KeyValuePair<IntPtr,IntPtr> entry in MovieRegistry(vm)) {
                     if(parentClasses.Contains(entry.Value))continue;
+                    if(Activity!=null)Activity.PatchClass(entry.Value);
                     IntPtr value=Marshal.ReadIntPtr(entry.Value,48);
                     if(value!=IntPtr.Zero)movieClassReferences.Add(reference(Player,value,0));
                 }
@@ -134,9 +135,11 @@ namespace IggyViewer {
             if(MovieFunction<LoadMovieAbc>(0x44e0,0x15a0)(Player,generic,id,IntPtr.Zero)==0)throw new InvalidDataException("Cannot link loaded movie ABC.");
             int count=Marshal.ReadInt32(generic,160),symbolsCount=Marshal.ReadInt32(generic,560);
             if(count<0||count>65536||symbolsCount<0||symbolsCount>65536)throw new InvalidDataException("Invalid loaded movie symbols.");
-            IntPtr map=MovieAllocate((uint)(8*Math.Max(1,count))),symbols=Marshal.ReadIntPtr(generic,552);
+            if(root&&count==65536)throw new InvalidDataException("Loaded movie needs one unused character slot for its root.");
+            int rootId=Math.Max(1,count),mapCount=root?rootId+1:Math.Max(1,count);
+            IntPtr map=MovieAllocate((uint)(8*mapCount)),symbols=Marshal.ReadIntPtr(generic,552);
             if(map==IntPtr.Zero)throw new OutOfMemoryException();
-            for(int i=0;i<Math.Max(1,count);i++)Marshal.WriteIntPtr(map,8*i,IntPtr.Zero);
+            for(int i=0;i<mapCount;i++)Marshal.WriteIntPtr(map,8*i,IntPtr.Zero);
             Marshal.WriteIntPtr(Player,872+8*id,map);
             IntPtr document=IntPtr.Zero;
             for(int i=0;i<symbolsCount;i++) {
@@ -153,11 +156,15 @@ namespace IggyViewer {
                 IntPtr definition=Marshal.AllocHGlobal(72);movieDefinitions.Add(definition);
                 for(int i=0;i<72;i++)Marshal.WriteByte(definition,i,0);
                 Marshal.WriteByte(definition,0,3);Marshal.WriteByte(definition,1,(byte)id);
+                // Character zero tells the native instance destructor to free
+                // an instance-owned definition. Our cached template is shared
+                // across loads and host-owned, so give it a spare nonzero ID.
+                Marshal.WriteInt16(definition,2,(short)rootId);
                 Marshal.WriteInt16(definition,40,(short)Marshal.ReadInt32(generic,104));Marshal.WriteInt16(definition,42,(short)Marshal.ReadInt32(generic,108));
                 Marshal.WriteIntPtr(definition,56,Marshal.ReadIntPtr(generic,128));Marshal.WriteIntPtr(definition,64,Marshal.ReadIntPtr(generic,136));
                 if(document==IntPtr.Zero)document=BuiltinMovieClip(vm);
                 else Marshal.WriteIntPtr(document,32,definition);
-                Marshal.WriteIntPtr(map,document);movie.Definition=definition;
+                Marshal.WriteIntPtr(map,document);Marshal.WriteIntPtr(map,8*rootId,document);movie.Definition=definition;
             }
             if((Marshal.ReadInt32(Player,608)&(1u<<id))==0)Marshal.WriteInt32(generic,536,Marshal.ReadInt32(generic,536)+1);
             Marshal.WriteInt32(Player,608,Marshal.ReadInt32(Player,608)|(1<<id));Marshal.WriteInt32(Player,612,Marshal.ReadInt32(Player,612)|(1<<id));
@@ -167,6 +174,37 @@ namespace IggyViewer {
             IntPtr reference=instance==IntPtr.Zero?IntPtr.Zero:Marshal.ReadIntPtr(instance,32);
             if(reference==IntPtr.Zero)throw new InvalidDataException("Loaded movie did not create a display object.");
             return Marshal.ReadIntPtr(reference);
+        }
+        internal bool IsStageObject(IntPtr value) {
+            return value.ToInt64()>65536&&(value.ToInt64()&3)==1&&Marshal.ReadByte(IntPtr.Subtract(value,1))==36&&Marshal.ReadIntPtr(value,39)==IntPtr.Add(Player,stageInstanceOffset);
+        }
+        internal void CancelMovieLoads(MovieActivity.Scope scope) {if(imageLoader!=null)imageLoader.CancelScope(scope);}
+        internal bool IsLoadedMovieRoot(IntPtr value) {return imageLoader!=null&&imageLoader.IsMovieRoot(value);}
+        internal void StopMovieClip(IntPtr value,HashSet<IntPtr> seen) {
+            if(value.ToInt64()<65536||(value.ToInt64()&3)!=1||Marshal.ReadByte(IntPtr.Subtract(value,1))!=36)return;
+            IntPtr instance=Marshal.ReadIntPtr(value,39);
+            Stack<IntPtr> pending=new Stack<IntPtr>();pending.Push(instance);
+            while(pending.Count>0) {
+                IntPtr item=pending.Pop();if(item==IntPtr.Zero||!seen.Add(item)||seen.Count>100000)continue;
+                for(IntPtr child=Marshal.ReadIntPtr(item,16);child!=IntPtr.Zero;child=Marshal.ReadIntPtr(child,8))pending.Push(child);
+                IntPtr definition=Marshal.ReadIntPtr(item,168);
+                if(definition!=IntPtr.Zero&&Marshal.ReadByte(definition)==3)Marshal.WriteByte(item,185,(byte)(Marshal.ReadByte(item,185)&~1));
+                if(Marshal.ReadByte(item,3)==7)for(int i=0;i<4;i++)pending.Push(Marshal.ReadIntPtr(Marshal.ReadIntPtr(item,72),8*i));
+            }
+        }
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate void StopMovieVoice(IntPtr player,int slot,IntPtr unused,int unused2);
+        internal void StopMovieSounds(MovieActivity.Scope scope) {
+            if(soundCompatibility!=null)soundCompatibility.StopMovie(scope);
+            for(int slot=0;slot<8;slot++) {
+                IntPtr voice=IntPtr.Add(Player,(modernDll?11648:11568)+56*slot),instance=Marshal.ReadIntPtr(voice,40);
+                if(Marshal.ReadInt16(voice,36)<0)continue;
+                for(int depth=0;instance!=IntPtr.Zero&&depth<256;depth++,instance=Marshal.ReadIntPtr(instance,128)) {
+                    IntPtr reference=Marshal.ReadIntPtr(instance,32);MovieActivity.Scope owner;
+                    if(reference!=IntPtr.Zero&&Activity.TryOwner(Marshal.ReadIntPtr(reference),out owner)&&MovieActivity.Within(owner,scope)) {
+                        MovieFunction<StopMovieVoice>(0xa4e60,0xaa420)(Player,slot,IntPtr.Zero,0);break;
+                    }
+                }
+            }
         }
         void DetachMovieClasses() {
             if(Player==IntPtr.Zero)return;

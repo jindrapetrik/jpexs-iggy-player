@@ -17,7 +17,7 @@ namespace IggyViewer {
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr GlobalReference(IntPtr player,IntPtr name);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate IntPtr LookupGlobal(IntPtr vm,IntPtr name);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate void ReferencePath(IntPtr output,IntPtr player,IntPtr reference);
-        sealed class Channel {internal IntPtr Reference;internal int Slot;internal float Duration;}
+        sealed class Channel {internal IntPtr Reference;internal int Slot;internal float Duration;internal MovieActivity.Scope Owner;}
         readonly List<Channel> channels=new List<Channel>();
         readonly IntPtr player,vm,nullValue,completionName;
         readonly int slotOffset,stackOffset;
@@ -34,10 +34,11 @@ namespace IggyViewer {
         readonly ReferencePath path;
         IntPtr completionClass;
         readonly bool modern;
+        readonly Native native;
         internal int Active {get{return channels.Count;}}
 
         internal SoundCompatibility(Native native,IntPtr module,bool modern,Log log) {
-            player=native.Player;this.modern=modern;slotOffset=modern?11648:11568;stackOffset=modern?27448:27416;
+            this.native=native;player=native.Player;this.modern=modern;slotOffset=modern?11648:11568;stackOffset=modern?27448:27416;
             vm=Marshal.ReadIntPtr(player,modern?10560:10480);
             if(vm==IntPtr.Zero)return;
             nullValue=IntPtr.Add(module,modern?0x103979:0xF3959);
@@ -82,6 +83,8 @@ namespace IggyViewer {
             throw new InvalidDataException("Missing sound method: "+name);
         }
         IntPtr Play(IntPtr context) {
+            MovieActivity.Scope owner=native.Activity==null?null:native.Activity.Current??native.Activity.OwnerOf(Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,24)));
+            if(owner!=null&&owner.Stopped){Marshal.WriteIntPtr(Marshal.ReadIntPtr(context,8),nullValue);return IntPtr.Zero;}
             float start=0;int loops=0;IntPtr transform=nullValue,format=Marshal.StringToHGlobalAnsi("?Fd!O");int status;
             try {status=parse(context,format,ref start,ref loops,Marshal.ReadIntPtr(vm,modern?9960:9936),ref transform);}finally {Marshal.FreeHGlobal(format);}
             if(status!=0)return error(vm,120);
@@ -101,7 +104,7 @@ namespace IggyViewer {
                 IntPtr result=originalPlay((IntPtr)forwarded),channel=Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,8));
                 if(channel!=nullValue&&channel!=IntPtr.Zero&&(channel.ToInt64()&3)==1) {
                     int slot=Marshal.ReadInt32(channel,55);
-                    if(slot>=0&&slot<8)channels.Add(new Channel {Reference=reference(player,channel,0),Slot=slot,Duration=*((float*)((byte*)channel+59))});
+                    if(slot>=0&&slot<8)channels.Add(new Channel {Reference=reference(player,channel,0),Slot=slot,Duration=*((float*)((byte*)channel+59)),Owner=owner});
                 }
                 return result;
             } finally {Marshal.WriteIntPtr(vm,stackOffset,saved);}
@@ -119,6 +122,13 @@ namespace IggyViewer {
         IntPtr StopAll(IntPtr context) {
             Channel[] stopped=channels.ToArray();IntPtr result=originalStopAll(context);
             foreach(Channel channel in stopped){Marshal.WriteInt32(Marshal.ReadIntPtr(channel.Reference),55,-1);Release(channel);}return result;
+        }
+        internal void StopMovie(MovieActivity.Scope scope) {
+            foreach(Channel channel in channels.ToArray())if(MovieActivity.Within(channel.Owner,scope)) {
+                IntPtr* args=stackalloc IntPtr[1];args[0]=Marshal.ReadIntPtr(channel.Reference);
+                IntPtr result=IntPtr.Zero;IntPtr* context=stackalloc IntPtr[5];context[0]=vm;context[1]=(IntPtr)(&result);context[2]=IntPtr.Zero;context[3]=(IntPtr)args;context[4]=IntPtr.Zero;
+                Stop((IntPtr)context);
+            }
         }
         internal void AfterTick() {
             // Native tick has already retired finished voices. Keep our strong
@@ -140,6 +150,7 @@ namespace IggyViewer {
             // listener may stop active sounds without cancelling these events.
             try {
                 foreach(Channel channel in completed) {
+                    if(channel.Owner!=null&&channel.Owner.Stopped)continue;
                     byte* argument=stackalloc byte[32];for(int i=0;i<32;i++)argument[i]=0;
                     *(int*)argument=9;*(IntPtr*)(argument+16)=channel.Reference;
                     if(completionClass==IntPtr.Zero) {

@@ -3,7 +3,12 @@ package {
     import flash.display.MovieClip;
     import flash.events.Event;
     import flash.events.IOErrorEvent;
+    import flash.events.MouseEvent;
+    import flash.events.TimerEvent;
     import flash.net.URLRequest;
+    import flash.utils.Timer;
+    import flash.media.Sound;
+    import flash.media.SoundChannel;
     public class Main extends MovieClip {
         public static var marker:uint = 99;
         public var first:Loader;
@@ -17,8 +22,15 @@ package {
         public var saved:MovieClip;
         public var plain:Loader;
         public var plainReady:Boolean;
+        public var parentTicks:uint;
+        public var parentTimerTicks:uint;
+        private var parentTimer:Timer;
+        public var parentTone:Sound;
+        public var parentChannel:SoundChannel;
         public function Main() {
             super(); stop();
+            addEventListener(Event.ENTER_FRAME, parentEnter);
+            parentTimer = new Timer(10); parentTimer.addEventListener(TimerEvent.TIMER, parentTimerEnter); parentTimer.start();
             first = new Loader(); first.x = 10; first.y = 50; addChild(first);
             first.contentLoaderInfo.addEventListener(Event.OPEN, opened);
             first.contentLoaderInfo.addEventListener(Event.INIT, init);
@@ -72,5 +84,13 @@ package {
         public function unloadMovies():void { saved = MovieClip(first.content); first.unload(); second.unload(); plain.unload(); }
         public function releaseSaved():void { saved = null; }
         public function reuse():void { first.load(new URLRequest("movie-loader/child.iggy")); }
+        public function stopFirst(gc:Boolean):void { saved = MovieClip(first.content); first.unloadAndStop(gc); }
+        public function mouseEvent():void { stage.dispatchEvent(new MouseEvent(MouseEvent.MOUSE_DOWN)); }
+        public function stopSecond():void { second.unloadAndStop(); }
+        private function parentEnter(e:Event):void { parentTicks++; }
+        private function parentTimerEnter(e:TimerEvent):void { parentTimerTicks++; }
+        public function startParentSound():void { parentTone = new UnloadTone(); parentChannel = parentTone.play(0, 1000); }
+        public function armReentrantStop():void { saved = MovieClip(first.content); saved["stopOnTick"] = true; }
+        public function get hasCapture():Boolean { return stage.hasEventListener(MouseEvent.MOUSE_UP); }
     }
 }
