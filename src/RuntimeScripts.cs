@@ -26,7 +26,7 @@ namespace IggyViewer {
             if(index<=0||index>=names.Count)return null;
             Name n=names[index];if(n.Kind!=7&&n.Kind!=13)return null;
             if(n.Ns<=0||n.Ns>=namespaces.Count||n.Text<0||n.Text>=strings.Count)throw new InvalidDataException("Invalid ABC QName.");
-            if(namespaceKinds[n.Ns]!=0x16)return null;
+            if(namespaceKinds[n.Ns]!=0x16&&namespaceKinds[n.Ns]!=0x17)return null;
             return strings[namespaces[n.Ns]]+"::"+strings[n.Text];
         }
         void Traits() {
@@ -107,7 +107,7 @@ namespace IggyViewer {
     internal sealed class RuntimeScriptPlan {
         readonly bool shared,loader,fileList,audio;
         internal bool NeedsSharedObject {get{return shared;}}
-        internal bool NeedsAudio {get{return audio;}}
+        internal bool NeedsAudio {get{return audio||loader;}}
         internal bool NeedsLoader {get{return loader;}}
         public RuntimeScriptPlan(IEnumerable<byte[]> sources) {
             HashSet<string> references=new HashSet<string>(StringComparer.Ordinal),definitions=new HashSet<string>(StringComparer.Ordinal);
@@ -116,10 +116,11 @@ namespace IggyViewer {
             }
             shared=references.Contains("flash.net::SharedObject")&&!definitions.Contains("flash.net::SharedObject");
             loader=references.Contains("flash.display::Loader")&&!definitions.Contains("flash.display::Loader")&&!definitions.Contains("flash.net::URLRequest")&&!definitions.Contains("flash.events::IOErrorEvent");
+            shared|=loader&&!definitions.Contains("flash.net::SharedObject");
             fileList=references.Contains("flash.net::FileReferenceList")&&!definitions.Contains("flash.net::FileReferenceList");
             audio=references.Contains("flash.media::Sound")||references.Contains("flash.media::SoundChannel");
-            if(audio&&references.Contains("::__IggyHostSoundEvents"))throw new InvalidDataException("Movie conflicts with the host sound completion class.");
-            if((loader||fileList)&&(definitions.Contains("com.jpexs.iggy.runtime::HostLoader")||definitions.Contains("com.jpexs.iggy.runtime::HostURLRequest")||definitions.Contains("com.jpexs.iggy.runtime::HostLoaderInfo")||definitions.Contains("com.jpexs.iggy.runtime::HostIOErrorEvent")||definitions.Contains("com.jpexs.iggy.runtime::HostFileReferenceList")||definitions.Contains("com.jpexs.iggy.runtime::HostLoadedBitmap")||definitions.Contains("com.jpexs.iggy.runtime::HostProgressEvent")))
+            if((audio||loader)&&references.Contains("::__IggyHostSoundEvents"))throw new InvalidDataException("Movie conflicts with the host sound completion class.");
+            if(definitions.Contains("com.jpexs.iggy.runtime::HostLoader")||definitions.Contains("com.jpexs.iggy.runtime::HostURLRequest")||definitions.Contains("com.jpexs.iggy.runtime::HostLoaderInfo")||definitions.Contains("com.jpexs.iggy.runtime::HostIOErrorEvent")||definitions.Contains("com.jpexs.iggy.runtime::HostFileReferenceList")||definitions.Contains("com.jpexs.iggy.runtime::HostLoadedBitmap")||definitions.Contains("com.jpexs.iggy.runtime::HostProgressEvent")||definitions.Contains("com.jpexs.iggy.runtime::HostMovieRequest"))
                 throw new InvalidDataException("Movie conflicts with the Iggy runtime compatibility namespace.");
             if(shared&&definitions.Contains("com.jpexs.iggy.runtime::HostCodec"))throw new InvalidDataException("Movie conflicts with the SharedObject codec namespace.");
         }
@@ -135,7 +136,7 @@ namespace IggyViewer {
             if(main) {
                 if(shared)abcs.Add(Resource("IggyViewer.SharedObject.abc"));
                 if(loader||fileList)abcs.Add(Resource("IggyViewer.Loader.abc"));
-                if(audio)abcs.Add(Resource("IggyViewer.Audio.abc"));
+                if(audio||loader)abcs.Add(Resource("IggyViewer.Audio.abc"));
             }
             bool changed=abcs.Count!=0;
             foreach(byte[] abc in Container.ReadAbcs(source)) {

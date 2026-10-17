@@ -32,10 +32,12 @@ Invoke-PlayerTest @('--self-test-zero-scale', (Join-Path $PSScriptRoot 'test-dat
 Invoke-PlayerTest @('--self-test-loaderinfo', (Join-Path $PSScriptRoot 'test-data/loaderinfo.iggy'), (Join-Path $output 'loaderinfo')) 'loaderinfo.log'
 Invoke-PlayerTest @('--self-test-runtime', (Join-Path $PSScriptRoot 'test-data/runtime.iggy'), (Join-Path $output 'runtime')) 'runtime.log'
 Invoke-PlayerTest @('--renderer', 'software', '--self-test-loader', (Join-Path $PSScriptRoot 'test-data/loader.iggy'), (Join-Path $output 'loader')) 'loader.log'
+Invoke-PlayerTest @('--renderer', 'software', '--self-test-movie-loader', (Join-Path $PSScriptRoot 'test-data/movie-loader.iggy'), (Join-Path $output 'movie-loader')) 'movie-loader.log'
 Invoke-PlayerTest @('--self-test-fixup-partitions', $movie, (Join-Path $output 'fixup-partitions')) 'fixup-partitions.log'
 if ($TestOpenGl) {
     Invoke-PlayerTest @('--self-test-opengl', $movie, (Join-Path $output 'opengl')) 'opengl.log'
     Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-loader', (Join-Path $PSScriptRoot 'test-data/loader.iggy'), (Join-Path $output 'loader-opengl')) 'loader-opengl.log'
+    Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-movie-loader', (Join-Path $PSScriptRoot 'test-data/movie-loader.iggy'), (Join-Path $output 'movie-loader-opengl')) 'movie-loader-opengl.log'
 }
 if ($TestAudio) { Invoke-PlayerTest @('--self-test-audio', (Join-Path $PSScriptRoot 'test-data/audio.iggy'), (Join-Path $output 'audio')) 'audio.log' }
 if ($GameMovie) {

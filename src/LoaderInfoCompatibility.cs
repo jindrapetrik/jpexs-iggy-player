@@ -11,6 +11,7 @@ namespace IggyViewer {
         readonly Getter original, replacement;
         readonly IntPtr vm;
         public int StageReads { get; private set; }
+        internal Func<IntPtr,IntPtr> LoadedInfo;
 
         internal static void VerifyBinary(string path,bool modern) {
             string expected=modern?"239B132048C3364F52FA1C8B68F0033307E34BBDD02F7D1CE4E15E67CFD3DC07":"DB1764BFC0714FAD7DA0DE5B31EEBA20FB52CB336B613284FB23C2E87BF9E408";
@@ -59,6 +60,10 @@ namespace IggyViewer {
 
         IntPtr Read(IntPtr context) {
             IntPtr* call=(IntPtr*)context;
+            if(LoadedInfo!=null) {
+                IntPtr value=LoadedInfo(call[3]);
+                if(value!=IntPtr.Zero){Marshal.WriteIntPtr(call[1],value);return IntPtr.Zero;}
+            }
             if(call[0]!=vm||*(long*)call[3]!=Marshal.ReadInt64(vm,72))return original(context);
             // The original getter reads four context words. Use a local receiver
             // slot referencing the VM's GC-rooted movie; never alter VM.root.

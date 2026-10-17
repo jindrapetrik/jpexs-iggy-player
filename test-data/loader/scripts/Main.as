@@ -48,7 +48,7 @@ package {
             invalid.load(new URLRequest("loader/invalid.png"));
             var movie:Loader = new Loader();
             movie.contentLoaderInfo.addEventListener(IOErrorEvent.IO_ERROR, expected);
-            movie.load(new URLRequest("as3.swf"));
+            movie.load(new URLRequest("README.md"));
             var cancelled:Loader = new Loader();
             cancelled.contentLoaderInfo.addEventListener(Event.COMPLETE, cancelEvent);
             cancelled.contentLoaderInfo.addEventListener(IOErrorEvent.IO_ERROR, cancelEvent);

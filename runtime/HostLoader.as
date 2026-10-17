@@ -2,6 +2,7 @@ package com.jpexs.iggy.runtime {
     import flash.display.BitmapData;
     import flash.display.DisplayObject;
     import flash.display.Sprite;
+    import flash.display.MovieClip;
     import flash.display.LoaderInfo;
     import flash.events.Event;
     import flash.events.TimerEvent;
@@ -29,7 +30,7 @@ package com.jpexs.iggy.runtime {
             info.imageHeight = 0;
             info.mimeType = null;
             opened = false;
-            token = String(ExternalInterface.call("__iggy_image_start", request.url));
+            token = String(ExternalInterface.call("__iggy_image_start", request.url, info.loaderURL));
             pending = new Timer(10);
             pending.addEventListener(TimerEvent.TIMER, poll);
             pending.start();
@@ -40,11 +41,12 @@ package com.jpexs.iggy.runtime {
                 opened = true;
                 info.dispatchEvent(new Event(Event.OPEN));
                 if (serial != generation) return;
+                ExternalInterface.call("__iggy_image_opened", token);
             }
             var status:String = token.indexOf("error|") == 0 ? token : String(ExternalInterface.call("__iggy_image_poll", token));
             if (status == "pending") return;
             var parts:Array = status.split("|");
-            if (parts[0] != "ready") {
+            if (parts[0] != "ready" && parts[0] != "movie") {
                 close();
                 info.dispatchEvent(new HostIOErrorEvent("ioError", false, false, status));
                 return;
@@ -56,19 +58,36 @@ package com.jpexs.iggy.runtime {
             info.requestUrl = parts.slice(5).join("|");
             info.dispatchEvent(new HostProgressEvent("progress", false, false, info.requestBytes, info.requestBytes));
             if (serial != generation) return;
-            var bitmapClass:Class = BitmapData;
-            var pixels:BitmapData = new bitmapClass(info.imageWidth, info.imageHeight, true, 0, token);
+            var candidate:DisplayObject;
+            try {
+                if (parts[0] == "movie") {
+                    var movieRequest:HostMovieRequest = new HostMovieRequest(token, info);
+                    candidate = movieRequest.content;
+                    if (candidate != null) movieRequest.retain(candidate);
+                } else {
+                    var bitmapClass:Class = BitmapData;
+                    var pixels:BitmapData = new bitmapClass(info.imageWidth, info.imageHeight, true, 0, token);
+                    candidate = new HostLoadedBitmap(pixels, info);
+                }
+            } catch (error:Error) {
+                if (serial != generation) return;
+                close();
+                info.dispatchEvent(new HostIOErrorEvent("ioError", false, false, error.message));
+                return;
+            }
+            if (serial != generation) return;
             var result:String = String(ExternalInterface.call("__iggy_image_finish", token));
-            if (result != "ok") {
+            if (result != "ok" || candidate == null) {
                 close();
                 info.dispatchEvent(new HostIOErrorEvent("ioError", false, false, result));
                 return;
             }
             token = null;
             stopTimer();
-            loaded = new HostLoadedBitmap(pixels, info);
+            loaded = candidate;
             info.imageContent = loaded;
             addChild(loaded);
+            if (serial != generation) return;
             info.dispatchEvent(new Event(Event.INIT));
             if (serial != generation) return;
             info.dispatchEvent(new Event(Event.COMPLETE));
@@ -89,6 +108,7 @@ package com.jpexs.iggy.runtime {
         public function unload():void {
             close();
             if (loaded != null) {
+                if (loaded is MovieClip) MovieClip(loaded).stop();
                 if (loaded.parent == this) removeChild(loaded);
                 loaded = null;
                 info.imageContent = null;

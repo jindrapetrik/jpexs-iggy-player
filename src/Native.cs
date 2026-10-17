@@ -59,6 +59,7 @@ namespace IggyViewer {
         RuntimeScriptPlan runtimeScripts;
         SharedObjectStorage sharedObjectStorage;
         ImageLoader imageLoader;
+        CompilerLifetime compilerLifetime;
         internal long LoadedImageBytes {get{return imageLoader==null?0:imageLoader.AllocatedBytes;}}
         internal string StorageDirectory=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"sharedobjects");
         internal int LoaderInfoStageReads {get{return loaderInfo==null?0:loaderInfo.StageReads;}}
@@ -82,7 +83,7 @@ namespace IggyViewer {
         readonly LibraryDestroy libraryDestroy;
         readonly InstallResources installResources;
         readonly List<int> libraries=new List<int>();
-        readonly HashSet<string> loadedUrls=new HashSet<string>(StringComparer.Ordinal);
+        readonly Dictionary<string,string> loadedUrls=new Dictionary<string,string>(StringComparer.Ordinal);
         readonly Dictionary<string,IntPtr> deviceFontData=new Dictionary<string,IntPtr>(StringComparer.OrdinalIgnoreCase);
         readonly List<KeyValuePair<string,byte>> installedDeviceFonts=new List<KeyValuePair<string,byte>>();
         readonly HashSet<string> embeddedFonts=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -312,6 +313,7 @@ namespace IggyViewer {
             log.Write("Open: " + FileName + " (" + bytes.Length + " bytes)");
             byte* options = stackalloc byte[80];
             for(int i=0;i<80;i++)options[i]=0;
+            if(runtimeScripts!=null&&runtimeScripts.NeedsLoader)compilerLifetime=new CompilerLifetime(module,modernDll);
             fixed (byte* data = bytes) Player = create((IntPtr)data, (uint)bytes.Length, (IntPtr)options);
             if (Player == IntPtr.Zero) throw new InvalidDataException("The Iggy DLL rejected this file. See the log for details.");
             NormalizeTimelineMatrices(Player);
@@ -331,6 +333,7 @@ namespace IggyViewer {
             if(AudioEnabled&&runtimeScripts!=null&&runtimeScripts.NeedsAudio)soundCompatibility=new SoundCompatibility(this,module,modernDll,log);
             if(correctLoaderInfo)cursorCompatibility=new CursorCompatibility(this,module,modernDll,log);
             if(runtimeScripts!=null&&runtimeScripts.NeedsLoader)imageLoader=new ImageLoader(this,module,modernDll,log);
+            if(imageLoader!=null&&loaderInfo!=null)loaderInfo.LoadedInfo=imageLoader.LookupLoaderInfo;
             if(runtimeScripts!=null&&(runtimeScripts.NeedsSharedObject||runtimeScripts.NeedsLoader))sharedObjectStorage=new SharedObjectStorage(this,StorageDirectory,log,imageLoader);
             wallClock.Restart();UpdateClock();initialize(Player);
             play(Player);
@@ -354,8 +357,13 @@ namespace IggyViewer {
         void LoadImports(string from,byte[] bytes,HashSet<string> visiting) {
             if(!visiting.Add(from))throw new InvalidDataException("Cyclic Iggy imports: "+from);
             foreach(string url in Container.Imports(bytes)) {
-                if(loadedUrls.Contains(url))continue;
                 string file=ResolveImport(from,url);
+                string registered;
+                if(loadedUrls.TryGetValue(url,out registered)) {
+                    if(file!=null&&!String.Equals(file,registered,StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidDataException("Import URL refers to two different local files: "+url);
+                    continue;
+                }
                 if(file==null){log.Write("Missing import: "+url+" (requested by "+from+")");continue;}
                 byte[] original=File.ReadAllBytes(file);LoadImports(file,original,visiting);
                 byte[] data=Container.Prepare(runtimeScripts==null?original:runtimeScripts.Apply(original,false,log),log),name=Encoding.UTF8.GetBytes(url+"\0");
@@ -364,7 +372,7 @@ namespace IggyViewer {
                 int id;
                 fixed(byte* p=data)fixed(byte* n=name)id=createLibrary((IntPtr)n,(IntPtr)p,(uint)data.Length,(IntPtr)options);
                 if(id<0||id>31)throw new InvalidDataException("DLL rejected imported library: "+url);
-                libraries.Add(id);loadedUrls.Add(url);
+                libraries.Add(id);loadedUrls.Add(url,file);
                 NormalizeTimelineMatrices(libraryGeneric(id));NormalizeEmptyStyleTables(libraryGeneric(id));NormalizeAudio(libraryGeneric(id));InstallTextures(libraryGeneric(id),file);
                 log.Write("Registered import "+url+" from "+file);
             }
@@ -485,6 +493,7 @@ namespace IggyViewer {
             LastAdvancedFrames=0;
             // DispatchEventRS handles input synchronously. A tick advances all
             // timelines even after IggyPlayerPause, so never tick just for input.
+            if(imageLoader!=null)imageLoader.PumpMovies();
             if(advance) {
                 // Simulation runs at the movie's clock even when software
                 // rendering is slower. The public no-render update resets
@@ -594,7 +603,10 @@ namespace IggyViewer {
             // Flush while the player is alive, before releasing its memory.
             if(sharedObjectStorage!=null){sharedObjectStorage.Detach();sharedObjectStorage=null;}
             if(imageLoader!=null)imageLoader.CancelAll();
+            DetachMovieClasses();
+            if(compilerLifetime!=null){compilerLifetime.Dispose();compilerLifetime=null;}
             if (Player != IntPtr.Zero) { if(soundCompatibility!=null)soundCompatibility.Detach();flushInstalledFonts();destroy(Player); Player = IntPtr.Zero; }
+            ReleaseMovieDefinitions();
             if(imageLoader!=null){imageLoader.Dispose();imageLoader=null;}
             GC.KeepAlive(soundCompatibility);soundCompatibility=null;
             GC.KeepAlive(loaderInfo);loaderInfo=null;

@@ -63,6 +63,29 @@ java -cp "tools;$classpath" CreateLoaderFixture test-data/as3.swf test-data/load
 The PNG has red/green/blue stripes and a half-transparent red stripe; the
 JPEG is cyan. The second PNG is an identical copy under a Unicode filename.
 
+## Local Loader movies
+
+movie-loader.swf and movie-loader.iggy load two instances of movie-loader/child.iggy,
+one through a .swf URL, and a script-free plain.iggy. Parent and child both define
+Main with different static fields. The child contains a three-frame timeline,
+device text, ENTER_FRAME code and a nested PNG request relative to its own file.
+Its named shape is imported from shapes.iggy and has an AS3 LoadedSquare class.
+
+The fixture checks rendering, class separation, imported classes, LoaderInfo,
+root/parent identity, events, parent-to-child calls, missing/corrupt/32-bit errors,
+cancellation, GC, retained roots after unload, reuse and closing pending work.
+unsupported32.iggy is deliberately a 64-bit fixture with an altered architecture
+header, and invalid.iggy has an incomplete directory; neither is a valid movie.
+The default suite runs these checks in software; -TestOpenGl also uses the GPU.
+
+~~~powershell
+$classpath = 'PATH_TO_FFDEC_JAR;PATH_TO_FFDEC_LIB/*'
+javac -encoding UTF-8 -cp $classpath tools/CreateMovieLoaderFixture.java
+java -cp "tools;$classpath" CreateMovieLoaderFixture test-data/as3.swf test-data/movie-loader
+~~~
+
+Regenerate the Loader image fixture first if loader/colors.png is absent.
+
 ## Audio
 
 The audio.swf and audio.iggy fixtures contain generated sine tones in PCM8,
