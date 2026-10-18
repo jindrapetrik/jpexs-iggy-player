@@ -255,7 +255,7 @@ or use test.ps1, which also selects OpenGL when -TestOpenGl is supplied.
 
 ## URLLoader local data
 
-url-loader.swf/url-loader.iggy cover text/binary loads, UTF-8 and UTF-16 BOMs,
+url-loader.swf/url-loader.iggy cover text/binary/variables loads, UTF-8 and UTF-16 BOMs,
 NUL and supplementary Unicode, escaped paths, empty and 2 MiB files, exact .swf
 reads, constructor loading, counters and event clones/order. Tests exercise close,
 replacement and format changes inside progress callbacks, missing/oversize files,
@@ -263,6 +263,10 @@ network security errors, forced GC before completion, resource collection and
 immediate shutdown. url-data/sub
 checks relative paths in a loaded movie's delayed callback and unloadAndStop.
 url-data/only tests activation without display Loader or ByteArray references.
+URLVariables tests cover UTF-8 and percent escapes, plus/space handling, repeated
+names, empty values, appended decode calls, array serialization, reflection,
+format changes and malformed responses. url-data/variables-only tests activation
+without URLLoader references.
 The .swf/.iggy files named raw are data inputs, not movies to open in the player.
 
 Regenerate with a compatible FFDec library and its dependencies:

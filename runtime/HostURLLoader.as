@@ -35,7 +35,7 @@ package com.jpexs.iggy.runtime {
         public function load(request:HostURLRequest):void {
             if (request == null) throw new TypeError("URLLoader request is null");
             if (request.url == null || request.url.length == 0) throw new ArgumentError("URLLoader URL is empty");
-            if (dataFormat != "text" && dataFormat != "binary") throw new ArgumentError("URLLoader supports text and binary data");
+            if (dataFormat != "text" && dataFormat != "binary" && dataFormat != "variables") throw new ArgumentError("Unsupported URLLoader data format");
             if (request.method != "GET" || request.data != null || (request.requestHeaders != null && request.requestHeaders.length != 0)) throw new ArgumentError("Local URLLoader supports GET without a body or headers");
             cancel(); data = null; bytesLoaded = 0; bytesTotal = 0; opened = false; progress = -1;
             token = String(new HostAmfRequest("data-start", request.url, baseUrl).result);
@@ -67,6 +67,10 @@ package com.jpexs.iggy.runtime {
             if (dataFormat == "binary") {
                 candidate = new ByteArray(); new HostAmfRequest("data-bytes", candidate, token).result;
             } else if (dataFormat == "text") candidate = new HostAmfRequest("data-text", token).result;
+            else if (dataFormat == "variables") {
+                try { candidate = new HostURLVariables(String(new HostAmfRequest("data-text", token).result)); }
+                catch (error:Error) { cancel(); dispatchEvent(new HostIOErrorEvent("ioError", false, false, "Invalid URL-encoded variables")); return; }
+            }
             else { cancel(); dispatchEvent(new HostIOErrorEvent("ioError", false, false, "Unsupported URLLoader data format")); return; }
             new HostAmfRequest("data-cancel", token).result;
             token = null; stopTimer(); data = candidate;

@@ -17,10 +17,11 @@ namespace IggyViewer {
                     finally {Marshal.FreeHGlobal(name);Marshal.FreeHGlobal(text);}
                     Call(native,"","startLimit");Call(native,"","loadChild");
                     native.Bind<Native.VoidPI>("IggyPlayerGarbageCollect")(native.Player,100);
-                    for(int i=0;i<400&&(ReadValue(native,"completed")<9||ReadValue(native,"errors")<2||!KeyFlag(native,"childDone")||ReadValue(native,"replaced")<1||ReadValue(native,"reloaded")<1||ReadValue(native,"changed")<1);i++){Thread.Sleep(10);native.Frame(true);}
+                    for(int i=0;i<400&&(ReadValue(native,"completed")<9||ReadValue(native,"errors")<2||!KeyFlag(native,"childDone")||ReadValue(native,"replaced")<1||ReadValue(native,"reloaded")<1||ReadValue(native,"changed")<1||ReadValue(native,"variablesCompleted")<3||ReadValue(native,"variablesErrors")<1);i++){Thread.Sleep(10);native.Frame(true);}
                     log.Write("URLLoader checks="+ReadValue(native,"checks")+", completed="+ReadValue(native,"completed")+", errors="+ReadValue(native,"errors")+", failures="+ReadValue(native,"failures")+", details="+ReadString(native,"details"));
                     log.Write("URLLoader done="+ReadString(native,"doneLabels")+", pending="+native.PendingDataLoads+", cancelled="+ReadValue(native,"cancelledEvents")+", replaced="+ReadValue(native,"replaced")+", reload="+ReadValue(native,"reloaded"));
                     Check(ReadValue(native,"completed")==9&&ReadValue(native,"errors")==2&&ReadValue(native,"security")==1,"Text/binary loads and asynchronous I/O/security failures");
+                    Check(ReadValue(native,"variablesCompleted")==3&&ReadValue(native,"variablesErrors")==1,"Variables loads, empty response, format switching and malformed response cleanup");
                     Check(ReadValue(native,"failures")==0&&ReadValue(native,"checks")>=30,"URLLoader payloads, BOMs, events, counters and validations");
                     log.Write("URLLoader replacement="+ReadValue(native,"replaced")+", reload="+ReadValue(native,"reloaded")+", changed="+ReadValue(native,"changed")+", cancelled="+ReadValue(native,"cancelledEvents"));
                     Check(ReadValue(native,"replaced")==1&&ReadValue(native,"reloaded")==1&&ReadValue(native,"changed")==1&&ReadValue(native,"cancelledEvents")==0,"Replacement, cancellation and reentrant progress listeners");
@@ -38,10 +39,12 @@ namespace IggyViewer {
                 native.Open(Path.Combine(Path.GetDirectoryName(movie),"url-data","only.iggy"),550,400);
                 for(int i=0;i<200&&!KeyFlag(native,"passed");i++){Thread.Sleep(10);native.Frame(true);}
                 Check(KeyFlag(native,"passed"),"URLLoader activates without display Loader or ByteArray references");native.Close();
+                native.Open(Path.Combine(Path.GetDirectoryName(movie),"url-data","variables-only.iggy"),550,400);
+                Check(KeyFlag(native,"passed"),"URLVariables activates without URLLoader or ByteArray references");native.Close();
             }
             foreach(string message in log.Messages)Check(message.IndexOf("Uncaught exception",StringComparison.Ordinal)<0,"No uncaught URLLoader errors");
             Check(Hash(File.ReadAllBytes(movie))==hash,"URLLoader fixture remains unchanged");
-            log.Write("PASS: asynchronous URLLoader text/binary/BOM/Unicode/large/empty/raw data, counters and events, cancellation/replacement, local path ownership, limits/security, stopped child jobs, GC and shutdown.");
+            log.Write("PASS: URLVariables UTF-8/escaping/repeated names/serialization/reflection and standalone activation; asynchronous URLLoader text/binary/variables/BOM/Unicode/large/empty/raw data, counters and events, cancellation/replacement, local path ownership, limits/security, stopped child jobs, GC and shutdown.");
         }
     }
 }

@@ -14,10 +14,12 @@ public class CreateDataLoaderFixture {
         Arrays.fill(bytes,(byte)'A');Files.write(data.resolve("large.txt"),bytes);
         Files.write(data.resolve("raw.swf"),new byte[]{70,87,83,8});Files.copy(output.resolveSibling("as3.iggy"),data.resolve("raw.iggy"),StandardCopyOption.REPLACE_EXISTING);
         Files.writeString(data.resolve("sub/local.txt"),"child-relative");
-        for(String main:new String[]{"DataMain","DataChild","DataOnly"}) {
+        Files.writeString(data.resolve("form.txt"),"name=Jindra+Pet%C5%99%C3%ADk&name=JPEXS&%C5%BE=%F0%9F%99%82&plus=%2B+%2b",StandardCharsets.UTF_8);
+        Files.writeString(data.resolve("invalid-form.txt"),"missing-value",StandardCharsets.UTF_8);
+        for(String main:new String[]{"DataMain","DataChild","DataOnly","DataVariablesOnly"}) {
             SWF movie=CreateBytesLoaderFixture.movie();CreateBytesLoaderFixture.compile(movie,null,Files.readString(data.resolve(main+".as")));
             SymbolClassTag symbols=new SymbolClassTag(movie);symbols.tags.add(0);symbols.names.add(main);
-            CreateBytesLoaderFixture.write(movie,main.equals("DataMain")?output:data.resolve(main.equals("DataChild")?"sub/child":"only"),symbols);
+            CreateBytesLoaderFixture.write(movie,main.equals("DataMain")?output:data.resolve(main.equals("DataChild")?"sub/child":main.equals("DataOnly")?"only":"variables-only"),symbols);
         }
     }
 }

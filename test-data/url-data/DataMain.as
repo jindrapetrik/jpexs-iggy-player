@@ -4,6 +4,7 @@ package {
     import flash.net.URLLoader;
     import flash.net.URLLoaderDataFormat;
     import flash.net.URLRequest;
+    import flash.net.URLVariables;
     import flash.events.Event;
     import flash.events.ProgressEvent;
     import flash.events.IOErrorEvent;
@@ -23,6 +24,8 @@ package {
         public var replaced:uint;
         public var reloaded:uint;
         public var changed:uint;
+        public var variablesCompleted:uint;
+        public var variablesErrors:uint;
         public var limitUrl:String;
         public var child:Loader;
         private var retained:Array = [];
@@ -32,7 +35,7 @@ package {
             check(getQualifiedClassName(URLLoader)=="flash.net::URLLoader" && getDefinitionByName("flash.net.URLLoader")===URLLoader,"reflection");
             var caught:Boolean = false; try { fresh.load(null); } catch (nullError:TypeError) { caught = true; } check(caught,"null-request");
             caught = false; try { fresh.close(); } catch (closeError:Error) { caught = true; } check(caught,"inactive-close");
-            fresh.dataFormat = URLLoaderDataFormat.VARIABLES;
+            fresh.dataFormat = "invalid";
             caught = false; try { fresh.load(new URLRequest("url-data/utf8.txt")); } catch (formatError:ArgumentError) { caught = true; } check(caught,"unsupported-format");
             fresh.dataFormat = URLLoaderDataFormat.TEXT; var post:URLRequest = new URLRequest("url-data/utf8.txt"); post.method = "POST";
             caught = false; try { fresh.load(post); } catch (methodError:ArgumentError) { caught = true; } check(caught,"unsupported-method");
@@ -45,6 +48,7 @@ package {
             watch("unicode","url-data/%C5%BElu%C5%A5ou%C4%8Dk%C3%BD%F0%9F%99%82.txt?ignored=1#anchor",false,7);
             watch("large","url-data/large.txt",false,2097152);
             watch("raw","url-data/raw.swf",true,4);
+            testVariables();
             watchError("url-data/missing",false);
             watchError("https://example.invalid/data",true);
             var cancel:URLLoader = new URLLoader(); retained.push(cancel); cancel.addEventListener(Event.COMPLETE,unexpected);cancel.addEventListener(IOErrorEvent.IO_ERROR,unexpected);
@@ -57,6 +61,50 @@ package {
             reload.addEventListener(Event.COMPLETE,function(event:Event):void {reloaded++;check(reload.data == "","progress-reload");});reload.load(new URLRequest("url-data/bytes.bin"));
             var format:URLLoader = new URLLoader();retained.push(format);format.addEventListener(ProgressEvent.PROGRESS,function(event:ProgressEvent):void {format.dataFormat="binary";});format.addEventListener(Event.COMPLETE,function(event:Event):void {changed++;check(format.data is ByteArray && format.data.length==22,"format-at-complete");});format.load(new URLRequest("url-data/utf8.txt"));
             check(completed == 0 && errors == 0 && security == 0,"asynchronous-return");
+        }
+        private function testVariables():void {
+            var values:URLVariables = new URLVariables("name=Jindra+Pet%C5%99%C3%ADk&name=JPEXS&empty=&equal=a=b&%C5%BE=%F0%9F%99%82&plus=%2B+%2b&=blank");
+            check(values.name is Array && values.name.length == 2 && values.name[0] == "Jindra Petřík" && values.name[1] == "JPEXS", "variables-duplicates");
+            check(values.empty === "" && values.equal == "a=b" && values["ž"] == "🙂" && values.plus == "+ +" && values[""] == "blank", "variables-escaping");
+            values.decode("name=third&more=hello+wide+world");
+            check(values.name.length == 3 && values.name[2] == "third" && values.more == "hello wide world", "variables-decode-appends");
+            var encoded:URLVariables = new URLVariables(); encoded["ž"] = "🙂 +&=%";
+            check(encoded.toString() == "%C5%BE=%F0%9F%99%82%20%2B%26%3D%25", "variables-encode-utf8");
+            encoded = new URLVariables(); encoded.symbols = "-_.!~*'()@/";
+            check(encoded.toString() == "symbols=%2D%5F%2E%21%7E%2A%27%28%29%40%2F", "variables-encode-punctuation");
+            encoded = new URLVariables(); encoded.repeat = ["one", "two +", "ž"];
+            check(encoded.toString() == "repeat=one&repeat=two%20%2B&repeat=%C5%BE", "variables-encode-array");
+            var roundtrip:URLVariables = new URLVariables(values.toString());
+            check(roundtrip.name is Array && roundtrip.name.length == 3 && roundtrip["ž"] == "🙂" && roundtrip.plus == "+ +", "variables-roundtrip");
+            encoded = new URLVariables(); encoded.number = 42; encoded.flag = false; encoded.nothing = null;
+            roundtrip = new URLVariables(encoded.toString());
+            check(roundtrip.number == "42" && roundtrip.flag == "false" && roundtrip.nothing == "null", "variables-convert-values");
+            check(new URLVariables().toString() == "" && new URLVariables("").toString() == "", "variables-empty");
+            var caught:Boolean = false; try { new URLVariables("missing-value"); } catch (error:Error) { caught = true; } check(caught, "variables-invalid-pair");
+            check(getQualifiedClassName(URLVariables) == "flash.net::URLVariables" && getQualifiedClassName(values) == "flash.net::URLVariables" && getDefinitionByName("flash.net.URLVariables") === URLVariables, "variables-reflection");
+            watchVariables("url-data/form.txt", false, false);
+            watchVariables("url-data/empty", true, false);
+            watchVariables("url-data/form.txt", false, true);
+            var invalid:URLLoader = new URLLoader(); retained.push(invalid); invalid.dataFormat = URLLoaderDataFormat.VARIABLES;
+            invalid.addEventListener(Event.COMPLETE, unexpected);
+            invalid.addEventListener(IOErrorEvent.IO_ERROR, function(event:IOErrorEvent):void {variablesErrors++;check(event.text.length > 0 && invalid.data == null, "variables-invalid-response");});
+            invalid.load(new URLRequest("url-data/invalid-form.txt"));
+        }
+        private function watchVariables(url:String, empty:Boolean, change:Boolean):void {
+            var loader:URLLoader = new URLLoader(); retained.push(loader);
+            loader.dataFormat = change ? URLLoaderDataFormat.TEXT : URLLoaderDataFormat.VARIABLES;
+            var opened:Boolean; var progressed:Boolean;
+            loader.addEventListener(Event.OPEN, function(event:Event):void {opened = true;});
+            loader.addEventListener(ProgressEvent.PROGRESS, function(event:Event):void {progressed = true;if(change)loader.dataFormat = URLLoaderDataFormat.VARIABLES;});
+            loader.addEventListener(IOErrorEvent.IO_ERROR, unexpected);
+            loader.addEventListener(Event.COMPLETE, function(event:Event):void {
+                variablesCompleted++;
+                var result:URLVariables = loader.data as URLVariables;
+                check(opened && progressed && result != null && loader.bytesLoaded == loader.bytesTotal, "variables-load-events");
+                if(empty)check(result.toString() == "" && loader.bytesTotal == 0, "variables-load-empty");
+                else check(result.name is Array && result.name[0] == "Jindra Petřík" && result.name[1] == "JPEXS" && result["ž"] == "🙂" && result.plus == "+ +", "variables-load-payload");
+            });
+            loader.load(new URLRequest(url));
         }
         private function check(value:Boolean,label:String):void {checks++;if(!value){failures++;details+=label+",";}}
         private function unexpected(event:Event):void {cancelledEvents++;details+="cancel-"+retained.indexOf(event.target)+":"+event.type+",";}
