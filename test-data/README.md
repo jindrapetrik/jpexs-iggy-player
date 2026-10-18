@@ -418,3 +418,19 @@ java -cp "tools;$classpath" CreateFocalInstances test-data/graphics.swf test-dat
 
 The shared-instance test checks the green channel to isolate matrix/focus
 interpolation from the supplied runtime's separate morph palette cache issue.
+
+## External textures
+
+`external-textures.iggy` and its `.raw.iggytex` companion exercise raw formats
+0 through 11 and BC7 (13), with two mip levels and nonzero resource offsets.
+The native test checks packed color channels, luminance, intensity, DXT
+transparency, atlas pixels and both renderers. DXT decoding also has independent
+Pillow reference hashes. This is generated data, not an official compiler sample.
+
+Regenerate with the FFDec library and its dependencies:
+
+~~~powershell
+$classpath = 'PATH_TO_FFDEC_JAR;PATH_TO_FFDEC_LIB/*'
+javac -encoding UTF-8 -cp $classpath tools/CreateBytesLoaderFixture.java tools/CreateExternalTextureFixture.java
+java -cp "tools;$classpath" CreateExternalTextureFixture test-data/external-textures
+~~~

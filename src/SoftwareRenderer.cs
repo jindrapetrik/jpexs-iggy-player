@@ -480,18 +480,12 @@ namespace IggyViewer {
                 int offset=I(metadata,0),format=(ushort)Marshal.ReadInt16(metadata,4);
                 int w=(ushort)Marshal.ReadInt16(metadata,6),h=(ushort)Marshal.ReadInt16(metadata,8);
                 if(offset<0||w<1||h<1||(long)w*h>32*1024*1024)throw new InvalidOperationException("Invalid external texture dimensions");
-                int required=format==0x100?checked(w*h*4):format==0x10d?checked(((w+3)/4)*((h+3)/4)*16):0;
-                if(required==0){Notice("Unsupported external texture format 0x"+format.ToString("x"));return IntPtr.Zero;}
+                int required=ExternalTextureDecoder.DataLength(w,h,format);
                 if(offset>length-required)throw new InvalidOperationException("External texture outside resource file");
                 uint[] pixels=new uint[w*h];
-                if(format==0x100) {
-                    byte* src=(byte*)bytes+offset;
-                    for(int i=0;i<pixels.Length;i++){int a=src[i*4+3],r=(src[i*4]*a+127)/255,g=(src[i*4+1]*a+127)/255,b=(src[i*4+2]*a+127)/255;pixels[i]=(uint)(a<<24|r<<16|g<<8|b);}
-                } else {
-                    byte[] blocks=new byte[required];Marshal.Copy(IntPtr.Add(bytes,offset),blocks,0,required);
-                    int[] decoded=Bc7Decoder.decode(w,h,blocks);
-                    for(int i=0;i<pixels.Length;i++){uint p=(uint)decoded[i];int a=(int)(p>>24),r=((int)((p>>16)&255)*a+127)/255,g=((int)((p>>8)&255)*a+127)/255,b=((int)(p&255)*a+127)/255;pixels[i]=(uint)(a<<24|r<<16|g<<8|b);}
-                }
+                byte[] encoded=new byte[required];Marshal.Copy(IntPtr.Add(bytes,offset),encoded,0,required);
+                int[] decoded=ExternalTextureDecoder.Decode(w,h,format,encoded);
+                for(int i=0;i<pixels.Length;i++){uint p=(uint)decoded[i];int a=(int)(p>>24),r=((int)((p>>16)&255)*a+127)/255,g=((int)((p>>8)&255)*a+127)/255,b=((int)(p&255)*a+127)/255;pixels[i]=(uint)(a<<24|r<<16|g<<8|b);}
                 return Add(new Resource {Width=w,Height=h,Pixels=pixels});
             } catch(Exception ex){Notice("Cannot load external texture: "+ex.Message);return IntPtr.Zero;}
         }

@@ -21,6 +21,7 @@ function Invoke-PlayerTest([string[]] $PlayerArguments, [string] $LogName, [int]
     if ($playerProcess.ExitCode -ne $ExpectedExit) { throw "$LogName returned $($playerProcess.ExitCode), expected $ExpectedExit. See test-output/$LogName" }
 }
 Invoke-PlayerTest @('--self-test', $movie, (Join-Path $output 'graphics')) 'self-test.log'
+Invoke-PlayerTest @('--renderer', 'software', '--self-test-external-textures', (Join-Path $PSScriptRoot 'test-data/external-textures.iggy'), (Join-Path $output 'external-textures')) 'external-textures.log'
 Invoke-PlayerTest @('--self-test-seek', $movie, (Join-Path $output 'seek')) 'seek-test.log'
 Invoke-PlayerTest @('--self-test-focal-instances', (Join-Path $PSScriptRoot 'test-data/focal-instances.iggy'), (Join-Path $output 'focal-instances')) 'focal-instances.log'
 Invoke-PlayerTest @('--self-test-filters', (Join-Path $PSScriptRoot 'test-data/filters.iggy'), (Join-Path $output 'filters')) 'filters.log'
@@ -47,6 +48,7 @@ Invoke-PlayerTest @('--self-test-domains', (Join-Path $PSScriptRoot 'test-data/d
 Invoke-PlayerTest @('--renderer', 'software', '--self-test-unload', (Join-Path $PSScriptRoot 'test-data/movie-loader.iggy'), (Join-Path $output 'unload')) 'unload.log'
 Invoke-PlayerTest @('--self-test-fixup-partitions', $movie, (Join-Path $output 'fixup-partitions')) 'fixup-partitions.log'
 if ($TestOpenGl) {
+    Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-external-textures', (Join-Path $PSScriptRoot 'test-data/external-textures.iggy'), (Join-Path $output 'external-textures-opengl')) 'external-textures-opengl.log'
     Invoke-PlayerTest @('--self-test-opengl', $movie, (Join-Path $output 'opengl')) 'opengl.log'
     Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-loader', (Join-Path $PSScriptRoot 'test-data/loader.iggy'), (Join-Path $output 'loader-opengl')) 'loader-opengl.log'
     Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-loader-bytes', (Join-Path $PSScriptRoot 'test-data/bytes-loader.iggy'), (Join-Path $output 'bytes-loader-opengl')) 'bytes-loader-opengl.log'
