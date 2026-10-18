@@ -52,6 +52,8 @@ namespace IggyViewer {
         LoaderInfoCompatibility loaderInfo;
         RuntimeCompatibility runtimeCompatibility;
         SoundCompatibility soundCompatibility;
+        internal bool ModernDll {get{return modernDll;}}
+        internal long LoadedSoundBytes {get{return imageLoader==null?0:imageLoader.SoundBytes;}}
         internal int TrackedSoundChannels {get{return soundCompatibility==null?0:soundCompatibility.Active;}}
         CursorCompatibility cursorCompatibility;
         internal bool CorrectZeroScale=true;
@@ -648,6 +650,7 @@ namespace IggyViewer {
             if(imageLoader!=null){imageLoader.Dispose();imageLoader=null;}
             if(Activity!=null){Activity.KeepAlive();Activity=null;}
             GC.KeepAlive(byteArrayFinalizer);GC.KeepAlive(byteArrayConstructor);GC.KeepAlive(amfAnyVectorConstructor);amfAnyVectorConstructor=null;ReleaseByteArrays();
+            GC.KeepAlive(soundLoadCallbacks);soundLoadCallbacks.Clear();
             GC.KeepAlive(soundCompatibility);soundCompatibility=null;
             GC.KeepAlive(loaderInfo);loaderInfo=null;
             GC.KeepAlive(runtimeCompatibility);runtimeCompatibility=null;

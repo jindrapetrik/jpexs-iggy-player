@@ -72,6 +72,7 @@ namespace IggyViewer {
                             try{if(stream.ReadByte()<0)Interlocked.Increment(ref Aborted);}catch(IOException){Interlocked.Increment(ref Aborted);}return;
                         }
                         if(Resources.TryGetValue(resourcePath,out resource)){
+                            if(resourcePath=="/post.mp3"&&(first[0]!="POST"||Encoding.UTF8.GetString(body)!="sound=1"||!headers.ContainsKey("X-Test")||headers["X-Test"]!="sound")){Respond(stream,400,"",new byte[0]);return;}
                             if(resourcePath=="/remote/post.png"&&(first[0]!="POST"||Encoding.UTF8.GetString(body)!="image=1"||!headers.ContainsKey("X-Test")||headers["X-Test"]!="display")){Respond(stream,400,"",new byte[0]);return;}
                             Respond(stream,200,"",resource);return;
                         }

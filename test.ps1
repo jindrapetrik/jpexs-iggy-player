@@ -61,6 +61,7 @@ if ($TestOpenGl) {
     Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-unload', (Join-Path $PSScriptRoot 'test-data/movie-loader.iggy'), (Join-Path $output 'unload-opengl')) 'unload-opengl.log'
 }
 if ($TestAudio) {
+    Invoke-PlayerTest @('--self-test-sound-loader', (Join-Path $PSScriptRoot 'test-data/sound-loader.iggy'), (Join-Path $output 'sound-loader')) 'sound-loader.log'
     Invoke-PlayerTest @('--self-test-audio', (Join-Path $PSScriptRoot 'test-data/audio.iggy'), (Join-Path $output 'audio')) 'audio.log'
     Invoke-PlayerTest @('--self-test-unload-audio', (Join-Path $PSScriptRoot 'test-data/movie-loader.iggy'), (Join-Path $output 'unload-audio')) 'unload-audio.log'
 }

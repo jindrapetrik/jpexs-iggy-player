@@ -123,7 +123,19 @@ namespace IggyViewer {
                 w.Write((ushort)(bits==0?1:channels*bits/8));w.Write((ushort)bits);w.Write((ushort)extra);return m.ToArray();
             }
         }
-        internal static byte[] Decode(byte[] bytes,out int rate,out int channels) {
+        internal static byte[] DecodeExternal(byte[] bytes,out int rate,out int channels,Action<int> reserve) {
+            int start=0;
+            if(bytes.Length>=3&&bytes[0]==73&&bytes[1]==68&&bytes[2]==51) {
+                if(bytes.Length<10)throw new InvalidDataException("Truncated ID3 header");
+                for(int i=6;i<10;i++)if(bytes[i]>=128)throw new InvalidDataException("Invalid ID3 tag size");
+                start=10+(bytes[6]<<21|bytes[7]<<14|bytes[8]<<7|bytes[9]);
+                if(bytes[3]==4&&(bytes[5]&16)!=0)start=checked(start+10);
+                if(start>bytes.Length)throw new InvalidDataException("Truncated ID3 tag");
+            }
+            byte[] encoded=new byte[checked(bytes.Length-start+2)];Buffer.BlockCopy(bytes,start,encoded,2,bytes.Length-start);
+            return Decode(encoded,out rate,out channels,64*1024*1024,reserve);
+        }
+        internal static byte[] Decode(byte[] bytes,out int rate,out int channels,int maximum=256*1024*1024,Action<int> reserve=null) {
             rate=0;channels=0;int start=-1,frame=0,bitrate=0,samples;
             for(int at=2;at<bytes.Length-3;at++) {
                 if(FrameHeader(bytes,at,out rate,out channels,out frame,out samples,out bitrate)){start=at;break;}
@@ -138,7 +150,7 @@ namespace IggyViewer {
                 end+=nextFrame;frames+=nextSamples;
             }
             long expected=frames*channels*2;
-            if(expected>256*1024*1024-8192)throw new InvalidDataException("MP3 decoded audio exceeds 256 MiB.");
+            if(expected>maximum-8192)throw new InvalidDataException("MP3 decoded audio exceeds its storage limit.");
             byte[] source;
             using(MemoryStream m=new MemoryStream())using(BinaryWriter w=new BinaryWriter(m)) {
                 w.Write(Format(0x55,channels,rate,bitrate/8,0,12));w.Write((ushort)1);w.Write(0u);
@@ -148,7 +160,8 @@ namespace IggyViewer {
             try {
                 uint capacity;Check(acmStreamSize(stream,(uint)(end-start),out capacity,0),"Sizing MP3 output");
                 capacity=Math.Max(capacity,(uint)expected);
-                if(capacity>256*1024*1024-8192)throw new InvalidDataException("MP3 decoded audio exceeds 256 MiB.");
+                if(capacity>maximum-8192)throw new InvalidDataException("MP3 decoded audio exceeds its storage limit.");
+                if(reserve!=null)reserve((int)capacity+8192);
                 byte[] output=new byte[capacity+8192];GCHandle input=new GCHandle(),destination=new GCHandle();
                 try {
                     input=GCHandle.Alloc(bytes,GCHandleType.Pinned);destination=GCHandle.Alloc(output,GCHandleType.Pinned);

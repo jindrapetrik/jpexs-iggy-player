@@ -35,6 +35,8 @@ Flash's cross-domain policy sandbox is not emulated.
 AS3 `Loader` also loads PNG/JPEG images and 64-bit IGGY over HTTP/HTTPS,
 including static imports and companion textures. Dependencies and later relative
 requests use each movie's final URL after redirects. Downloads remain in memory.
+AS3 `Sound.load()` loads local or HTTP/HTTPS MP3 and plays it after the complete
+download, using the native mixer and ordinary `SoundChannel` controls.
 
 ## Building and testing
 

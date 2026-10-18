@@ -83,6 +83,7 @@ namespace IggyViewer {
             }
             native.InitializeMovieDomains(classes);
             native.InstallByteArrays(classes);
+            native.InstallSoundLoading(classes["Sound"]);
             InstallAmfDictionary(classes["Dictionary"]);
             native.InstallAmfVector(classes["Vector"]);
             InstallAmfXml(classes["XML"]);
@@ -411,6 +412,7 @@ namespace IggyViewer {
             return originalLoaderGetter(context);
         }
         internal void Prune() {
+            PruneSounds();
             native.PruneByteArrays();
             PruneAmfRequests();
             PruneXml();
@@ -436,6 +438,7 @@ namespace IggyViewer {
             }
         }
         internal void CancelAll() {
+            DetachSounds();
             foreach(AmfRequest request in amfRequests)FreeAmfRequest(request);amfRequests.Clear();
             foreach(IntPtr item in weakDictionaries)freeReference(native.Player,item);weakDictionaries.Clear();
             foreach(XmlValue item in xmlValues)freeReference(native.Player,item.Reference);xmlValues.Clear();
@@ -458,7 +461,7 @@ namespace IggyViewer {
         public void Dispose() {
             // Native bitmap clones and cached textures share these definitions.
             // Release them only after PlayerDestroy has drained its cache queue.
-            CancelAll();foreach(Pixels pixels in bitmaps.Values){if(pixels.Raw!=IntPtr.Zero)Marshal.FreeHGlobal(pixels.Raw);Marshal.FreeHGlobal(pixels.Definition);}
+            CancelAll();ReleaseSounds();foreach(Pixels pixels in bitmaps.Values){if(pixels.Raw!=IntPtr.Zero)Marshal.FreeHGlobal(pixels.Raw);Marshal.FreeHGlobal(pixels.Definition);}
             bitmaps.Clear();GC.KeepAlive(constructor);GC.KeepAlive(clone);GC.KeepAlive(loaderGetter);GC.KeepAlive(infoConstructor);
             GC.KeepAlive(contentGetter);GC.KeepAlive(rootGetter);GC.KeepAlive(movieConstructor);GC.KeepAlive(spriteConstructor);GC.KeepAlive(loaderUrlGetter);
         }

@@ -15,6 +15,9 @@ namespace IggyViewer {
             internal Dictionary<string,MovieResources.Movie> CachedMovies;
             internal int Domain;
             internal bool AllowCode;
+            internal bool Sound,SoundReady;
+            internal byte[] Pcm;
+            internal int Rate,Channels,DecodedReservation;
             internal MovieActivity.Scope Owner;
             internal int Loaded,Total,Reserved,ResponseCode;
             internal bool Ready,Cancelled,Cached;
@@ -39,9 +42,11 @@ namespace IggyViewer {
         IntPtr DataContent(IntPtr context,AmfRequest request) {
             string operation=request.Operation,answer;
             if(operation=="data-base")return native.ReturnMovieString(context,DataBaseUrl());
-            if(operation=="data-start"||operation=="data-image-start") {
+            if(operation.StartsWith("data-sound-",StringComparison.Ordinal)&&operation!="data-sound-start")return SoundContent(context,request);
+            if(operation=="data-start"||operation=="data-image-start"||operation=="data-sound-start") {
                 DataJob pending=ReadDataRequest(Marshal.ReadIntPtr(request.Value),operation=="data-image-start");
                 pending.BaseUrl=request.Extra;
+                pending.Sound=operation=="data-sound-start";
                 if(operation=="data-image-start")return native.ReturnMovieString(context,StartDisplayRequest(pending));
                 lock(sync) {
                     if(closed||native.Activity.Current!=null&&native.Activity.Current.Stopped)answer="error|The containing movie was closed";
@@ -63,7 +68,7 @@ namespace IggyViewer {
                 if(operation=="data-cancel") {if(dataJobs.TryGetValue(value,out job))CancelData(job);answer="ok";}
                 else if(!dataJobs.TryGetValue(value,out job))answer="error|URLLoader request was cancelled";
                 else if(operation=="data-status")answer=job.Statuses.Count==0?"":job.Statuses.Dequeue();
-                else if(operation=="data-poll")answer=job.Error??((job.Ready?"ready":"pending")+"|"+job.Loaded+"|"+job.Total);
+                else if(operation=="data-poll")answer=job.Error??((job.Ready&&(!job.Sound||job.SoundReady)?"ready":"pending")+"|"+job.Loaded+"|"+job.Total);
                 else if((operation=="data-bytes"||operation=="data-text")&&job.Ready){bytes=job.Bytes;answer=null;}
                 else throw new InvalidDataException("URLLoader data is not ready.");
             }
@@ -84,7 +89,7 @@ namespace IggyViewer {
                 DataJob job=dataWaiting.Dequeue();if(closed||job.Cancelled)continue;
                 dataReaders++;
                 ThreadPool.QueueUserWorkItem(delegate {
-                    try{ReadData(job);if(job.Display!=null)CompleteDisplayRequest(job);}finally{lock(sync){dataReaders--;StartDataReaders();}}
+                    try{ReadData(job);if(job.Sound)DecodeSound(job);if(job.Display!=null)CompleteDisplayRequest(job);}finally{lock(sync){dataReaders--;StartDataReaders();}}
                 });
             }
         }
@@ -106,7 +111,7 @@ namespace IggyViewer {
         bool ReserveData(DataJob job,int length) {
             lock(sync) {
                 if(closed||job.Cancelled)return false;
-                if(length>DataLimit)throw new IOException("URLLoader data exceeds 32 MiB");
+                if(length>(job.Sound?96*1024*1024:DataLimit))throw new IOException("URLLoader data exceeds its storage limit");
                 long reserved=length+(job.Upload==null?0:job.Upload.Length);foreach(DataJob other in dataJobs.Values)if(other!=job)reserved+=other.Reserved+(other.Upload==null?0:other.Upload.Length);
                 if(reserved>128L*1024*1024)throw new IOException("Pending URLLoader data exceeds 128 MiB");
                 job.Reserved=length;return true;
@@ -189,9 +194,9 @@ namespace IggyViewer {
                 FailData(job,(web!=null&&(web.Status==WebExceptionStatus.TrustFailure||web.Status==WebExceptionStatus.SecureChannelFailure)?"security|":"error|")+ex.Message.Replace('|',' '));
             } finally {lock(sync){job.Request=null;job.Upload=null;}}
         }
-        void FailData(DataJob job,string error) {lock(sync)if(!closed&&!job.Cancelled){job.Bytes=null;job.Upload=null;job.Reserved=0;job.Error=error;}}
+        void FailData(DataJob job,string error) {lock(sync)if(!closed&&!job.Cancelled){job.Bytes=null;job.Pcm=null;job.Upload=null;job.Reserved=job.DecodedReservation=0;job.Error=error;}}
         void CancelData(DataJob job) {
-            job.Cancelled=true;job.Bytes=null;job.Upload=null;job.Reserved=0;job.Statuses.Clear();dataJobs.Remove(job.Token);
+            job.Cancelled=true;job.Bytes=null;job.Pcm=null;job.Upload=null;job.Reserved=job.DecodedReservation=0;job.Statuses.Clear();dataJobs.Remove(job.Token);
             for(int remaining=dataWaiting.Count;remaining>0;remaining--){DataJob waiting=dataWaiting.Dequeue();if(!waiting.Cancelled)dataWaiting.Enqueue(waiting);}
             HttpWebRequest request=job.Request;
             // Abort outside the VM's lock and thread, including requests waiting
