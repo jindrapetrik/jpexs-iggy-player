@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 
 namespace IggyViewer {
     internal static partial class SelfTest {
@@ -29,6 +30,17 @@ namespace IggyViewer {
         }
         public static void RunSharedObject(string dll,string movie,string output,Log log,string renderer) {
             Directory.CreateDirectory(output);string source=Hash(File.ReadAllBytes(movie)),storage=Path.Combine(Path.GetFullPath(output),"storage-"+Guid.NewGuid().ToString("N"));
+            string locked=Path.Combine(output,"locked-save.dat");File.WriteAllText(locked,"original");
+            using(FileStream held=new FileStream(locked,FileMode.Open,FileAccess.Read,FileShare.Read)) {
+                Thread release=new Thread(delegate(){Thread.Sleep(100);held.Dispose();});release.IsBackground=true;release.Start();
+                try{SharedObjectStorage.SaveText(locked,"updated");}finally{release.Join();}
+            }
+            Check(File.ReadAllText(locked)=="updated","Transient file locks are retried without losing the save");
+            using(FileStream held=new FileStream(locked,FileMode.Open,FileAccess.Read,FileShare.Read)) {
+                bool rejected=false;try{SharedObjectStorage.SaveText(locked,"must-not-replace");}catch(IOException){rejected=true;}
+                Check(rejected&&File.ReadAllText(locked)=="updated","Persistent locks report failure and preserve the previous save");
+            }
+            Check(Directory.GetFiles(output,"locked-save.dat.*.tmp").Length==0,"Failed atomic save leaves no temporary file");
             SeedLegacyStore(storage,movie);
             for(int session=0;session<2;session++)using(Native native=new Native(dll,log,renderer:renderer)) {
                 native.StorageDirectory=storage;

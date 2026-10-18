@@ -4,6 +4,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 
 namespace IggyViewer {
     internal sealed class SharedObjectStorage {
@@ -114,15 +115,27 @@ namespace IggyViewer {
                 if(operation=="write") {
                     if(payload==null||(!payload.StartsWith("IGGY2:0:",StringComparison.Ordinal)&&!payload.StartsWith("IGGY2:3:",StringComparison.Ordinal)))throw new InvalidDataException("Invalid SharedObject payload.");
                     if(payload.Length>22369632||Convert.FromBase64String(payload.Substring(8)).Length>16*1024*1024)throw new InvalidDataException("SharedObject AMF data exceeds 16 MiB.");
-                    Directory.CreateDirectory(folder);string temporary=file+"."+Guid.NewGuid().ToString("N").Substring(0,12)+".tmp";
-                    try {
-                        File.WriteAllText(temporary,payload,new UTF8Encoding(false,true));
-                        if(File.Exists(file))File.Replace(temporary,file,null);else File.Move(temporary,file);
-                    } finally {if(File.Exists(temporary))File.Delete(temporary);}
+                    SaveText(file,payload);
                 } else if(operation=="clear") {if(File.Exists(file))File.Delete(file);}
                 else throw new InvalidDataException("Unknown SharedObject operation.");
                 return true;
             } catch(Exception ex) {log.Write("SharedObject host operation failed: "+ex.Message);return false;}
+        }
+        internal static void SaveText(string file,string payload) {
+            Directory.CreateDirectory(Path.GetDirectoryName(file));string temporary=file+"."+Guid.NewGuid().ToString("N").Substring(0,12)+".tmp";
+            try {
+                File.WriteAllText(temporary,payload,new UTF8Encoding(false,true));
+                for(int attempt=0;;attempt++) {
+                    try {if(File.Exists(file))File.Replace(temporary,file,null);else File.Move(temporary,file);break;}
+                    catch(IOException error) {
+                        int code=Marshal.GetHRForException(error)&0xffff;
+                        // Indexers/scanners can hold a file briefly without delete
+                        // sharing. Keep atomic replacement and bound the retry.
+                        if(attempt>=5||(code!=32&&code!=33&&code!=1175))throw;
+                        Thread.Sleep(25*(attempt+1));
+                    }
+                }
+            } finally {if(File.Exists(temporary))File.Delete(temporary);}
         }
         internal void Detach() {
             foreach(Store store in stores)native.Activity.FreeHostReference(store.Reference);stores.Clear();tracked.Clear();
