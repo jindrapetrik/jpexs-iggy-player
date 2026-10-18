@@ -10,18 +10,19 @@ namespace IggyViewer {
         readonly List<Builtin> pixelCallbacks=new List<Builtin>();
         PixelArguments pixelArguments;
         RectangleArguments rectangleArguments;
-        IntPtr rectangleMetadata;
+        IntPtr rectangleMetadata,bitmapMetadata,pointMetadata;
         void InstallPixelMethods(IntPtr metadata,IntPtr rectangle) {
             rectangleMetadata=rectangle;
+            bitmapMetadata=metadata;
             pixelArguments=native.BitmapFunction<PixelArguments>(0xb2d60,0xb8d40);
             rectangleArguments=native.BitmapFunction<RectangleArguments>(0xb2d60,0xb8d40);
             IntPtr traits=Marshal.ReadIntPtr(metadata,72),table=Marshal.ReadIntPtr(traits,64);int count=(ushort)Marshal.ReadInt16(traits,22),installed=0;
-            foreach(string operation in new string[]{"getPixel","getPixel32","setPixel","setPixel32","getPixels","setPixels","fillRect","dispose"}) {
+            foreach(string operation in new string[]{"getPixel","getPixel32","setPixel","setPixel32","getPixels","setPixels","copyPixels","fillRect","dispose"}) {
                 bool found=false;
                 for(int i=0;i<count;i++) {
                     IntPtr function=IntPtr.Subtract(Marshal.ReadIntPtr(table,8*i),1);if(function.ToInt64()<65536||Marshal.ReadByte(function)!=16)continue;
                     IntPtr name=Marshal.ReadIntPtr(function,8);if(Marshal.ReadInt32(name,48)!=operation.Length||Marshal.PtrToStringUni(IntPtr.Add(name,52),operation.Length)!=operation)continue;
-                    string method=operation;Builtin callback=context=>method=="getPixels"||method=="setPixels"?BitmapBytes(context,method=="getPixels"):PixelOperation(context,method);pixelCallbacks.Add(callback);Marshal.WriteIntPtr(function,16,Marshal.GetFunctionPointerForDelegate(callback));found=true;installed++;break;
+                    string method=operation;Builtin callback=context=>method=="copyPixels"?CopyBitmapPixels(context):method=="getPixels"||method=="setPixels"?BitmapBytes(context,method=="getPixels"):PixelOperation(context,method);pixelCallbacks.Add(callback);Marshal.WriteIntPtr(function,16,Marshal.GetFunctionPointerForDelegate(callback));found=true;installed++;break;
                 }
                 if(!found)throw new InvalidDataException("Missing BitmapData method: "+operation);
             }
@@ -30,7 +31,7 @@ namespace IggyViewer {
                 return native.BitmapRectangle(context,rectangleMetadata,Marshal.ReadInt32(receiver,47),Marshal.ReadInt32(receiver,51));
             };
             InstallGetter(metadata,"rect",rect);pixelCallbacks.Add(rect);
-            log.Write("BitmapData: pixel and ByteArray access, fillRect, independent clones and mutable textures enabled ("+installed+" methods).");
+            log.Write("BitmapData: pixel/ByteArray access, copyPixels, fillRect, independent clones and mutable textures enabled ("+installed+" methods).");
         }
         static IntPtr Receiver(IntPtr context) {return Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,24));}
         static uint Rgba(uint argb) {return (argb&0xff00ff00)|((argb&255)<<16)|((argb>>16)&255);}
@@ -39,7 +40,8 @@ namespace IggyViewer {
         }
         static uint Unmultiply(uint pixel) {
             uint a=pixel>>24;if(a==0)return 0;
-            return (a<<24)|(Math.Min(255,(((pixel>>16)&255)*255+a/2)/a)<<16)|(Math.Min(255,(((pixel>>8)&255)*255+a/2)/a)<<8)|Math.Min(255,((pixel&255)*255+a/2)/a);
+            uint factor=BitmapUnmultiplyFactors[a];
+            return (a<<24)|(Math.Min(255,(((pixel>>16)&255)*factor+32768)>>16)<<16)|(Math.Min(255,(((pixel>>8)&255)*factor+32768)>>16)<<8)|Math.Min(255,((pixel&255)*factor+32768)>>16);
         }
         bool Disposed(IntPtr value) {
             Pixels pixels;return Marshal.ReadInt32(value,47)<=0||Marshal.ReadInt32(value,51)<=0||(bitmaps.TryGetValue(Marshal.ReadIntPtr(value,39),out pixels)&&pixels.Raw==IntPtr.Zero);

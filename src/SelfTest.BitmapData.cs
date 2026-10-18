@@ -33,6 +33,17 @@ namespace IggyViewer {
                     image.Save(Path.Combine(output,"pixels-bulk.png"));
                 }
                 native.Bind<Native.VoidPI>("IggyPlayerGarbageCollect")(native.Player,100);native.Frame(false);Call(native,"","bulkRetained");
+                Call(native,"","copies");native.Frame(false);
+                string copied=ReadString(native,"copyResults",131072),expected=File.ReadAllText(Path.Combine(Path.GetDirectoryName(movie),"bitmap-data/copy-pixels-flash32.txt")).Replace("\r\n","\n");
+                File.WriteAllText(Path.Combine(output,"copy-pixels.txt"),copied);
+                string[] actualLines=copied.Split('\n'),expectedLines=expected.Split('\n');Check(actualLines.Length==expectedLines.Length,"copyPixels reference case count");
+                for(int i=0;i<actualLines.Length;i++)Check(actualLines[i]==expectedLines[i],"copyPixels Flash reference: "+expectedLines[i]+" got "+actualLines[i]);
+                Check(ReadValue(native,"failures")==0,"copyPixels embedded/loaded/texture checks: "+ReadString(native,"details"));
+                using(Bitmap image=native.Renderer.Snapshot()) {
+                    Check(image.GetPixel(14,14).ToArgb()==Color.Red.ToArgb(),"copyPixels changes an existing texture");
+                    Color masked=image.GetPixel(94,14);Check(Math.Abs(masked.R-191)<=1&&masked.G==255&&Math.Abs(masked.B-191)<=1,"copyPixels alpha mask renders transparently");
+                    image.Save(Path.Combine(output,"pixels-copied.png"));
+                }
                 Call(native,"","convert");Call(native,"","disposeDisplayed");native.Frame(false);
                 using(Bitmap image=native.Renderer.Snapshot())Check(image.GetPixel(94,14).ToArgb()==Color.White.ToArgb(),"Disposed displayed bitmap is transparent");
                 Check(ReadValue(native,"failures")==0,"Pixel mutations/argument conversion/disposal: "+ReadString(native,"details"));
@@ -43,7 +54,7 @@ namespace IggyViewer {
             }
             foreach(string message in log.Messages)Check(message.IndexOf("Uncaught exception",StringComparison.Ordinal)<0,"No uncaught BitmapData errors");
             Check(Hash(File.ReadAllBytes(movie))==hash,"BitmapData fixture unchanged");
-            log.Write("PASS: BitmapData pixel and ByteArray access, endian/position/partial errors, alpha/clipping, independent clones, embedded and loaded images, mutable textures, dispose, conversions and GC.");
+            log.Write("PASS: BitmapData pixel/ByteArray access, copyPixels against Flash 32 (alpha masks, blending, clipping, aliasing), embedded/loaded images, mutable textures, dispose and GC.");
         }
     }
 }

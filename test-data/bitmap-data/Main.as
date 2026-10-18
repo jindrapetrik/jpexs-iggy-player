@@ -4,6 +4,7 @@ package {
     import flash.display.BitmapData;
     import flash.display.Loader;
     import flash.geom.Rectangle;
+    import flash.geom.Point;
     import flash.net.URLRequest;
     import flash.events.Event;
     import flash.utils.ByteArray;
@@ -21,6 +22,7 @@ package {
         public var loadedCopy:BitmapData;
         public var conversions:uint;
         public var pixelBytes:ByteArray;
+        public var copyResults:String;
         private var views:Array=[];
         public function BitmapDataMain() {
             super();stop();data=new BitmapData(8,6,true,0xff0000ff);
@@ -91,6 +93,13 @@ package {
             rejected=false;try{copy.setPixels(new Rectangle(0,0,2,1),bytes);}catch(error:Error){rejected=true;}check(rejected && bytes.position==4,"bulk-visible-partial");
         }
         public function bulkRetained():void {pixelBytes.position=0;check(pixelBytes.length==192 && pixelBytes.readUnsignedInt()==0xff00ffff,"bulk-survives-gc");}
+        public function copies():void {
+            copyResults=CopyPixelCases.run();
+            data.copyPixels(assetCopy,assetCopy.rect,new Point(0,0));check(data.getPixel32(0,0)==0xffff0000,"copy-embedded");
+            var source:BitmapData=new BitmapData(2,2,true,0x8000ff00);var mask:BitmapData=new BitmapData(2,2,true,0x80000000);
+            copy.copyPixels(source,source.rect,new Point(0,0),mask,new Point(0,0),false);check(copy.getPixel32(0,0)==0x4000ff00,"copy-visible-mask");source.dispose();mask.dispose();
+            asset.copyPixels(Bitmap(loader.content).bitmapData,new Rectangle(3,10,1,1),new Point(1,1));check(asset.getPixel32(1,1)==0xffff0000,"copy-loaded");
+        }
         public function drop():void {loader.unload();removeChild(loader);loader=null;for each(var bitmap:Bitmap in views)removeChild(bitmap);views=[];data=null;copy=null;opaque=null;asset=null;assetCopy=null;loadedCopy=null;pixelBytes=null;}
     }
 }

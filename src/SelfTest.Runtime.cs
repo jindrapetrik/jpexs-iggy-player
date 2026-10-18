@@ -7,11 +7,11 @@ using System.Threading;
 namespace IggyViewer {
     internal static partial class SelfTest {
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate uint GetUnicodeValue(IntPtr path,IntPtr fastName,IntPtr name,int capacity,IntPtr buffer,out int length);
-        static string ReadString(Native native,string name) {
+        static string ReadString(Native native,string name,int capacity=2048) {
             IntPtr path=native.Bind<Native.PtrP>("IggyPlayerRootPath")(native.Player);
             GetUnicodeValue get=native.Bind<GetUnicodeValue>("IggyValueGetStringUTF16RS");
-            IntPtr text=Marshal.StringToHGlobalAnsi(name),buffer=Marshal.AllocHGlobal(4096);
-            try {int length;Check(get(path,IntPtr.Zero,text,2048,buffer,out length)==0&&length>=0&&length<2048,"Read string "+name);return Marshal.PtrToStringUni(buffer,length);}
+            IntPtr text=Marshal.StringToHGlobalAnsi(name),buffer=Marshal.AllocHGlobal(checked(capacity*2));
+            try {int length;Check(get(path,IntPtr.Zero,text,capacity,buffer,out length)==0&&length>=0&&length<capacity,"Read string "+name);return Marshal.PtrToStringUni(buffer,length);}
             finally {Marshal.FreeHGlobal(text);Marshal.FreeHGlobal(buffer);}
         }
         public static void RunRuntime(string dll,string movie,string output,Log log) {

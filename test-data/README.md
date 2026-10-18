@@ -365,6 +365,12 @@ Bulk tests cover ARGB order, ByteArray endian/position/defaultObjectEncoding,
 clipping, fractional endpoint rounding, empty regions, partial writes on short
 input and collection of returned byte arrays. Expected bulk behavior was checked
 against Adobe Flash Player 32, including its generic Error for short input.
+copy-pixels-flash32.txt contains 1,474 Flash Player 32 reference cases for
+copyPixels: transparent/opaque sources and targets, alpha masks, mergeAlpha,
+clipping, fractional coordinates, defaults, disposal and overlapping inputs.
+Tests also verify copied embedded/loaded images and visible texture updates.
+The independently measured alpha factors in ImageLoader.BitmapAlpha.cs reproduce
+Flash's unpremultiplication rounding, including partially transparent colors.
 The player limits bitmap dimensions to 3840 and owned pixel storage to 128 MiB.
 
 Run --self-test-bitmap-data test-data/bitmap-data.iggy test-output/bitmap-data,
@@ -375,6 +381,12 @@ $classpath = 'tools;PATH_TO_FFDEC_JAR;PATH_TO_FFDEC_LIB/*'
 javac -encoding UTF-8 -cp $classpath tools/CreateBytesLoaderFixture.java tools/CreateBitmapDataFixture.java
 java -cp $classpath CreateBitmapDataFixture test-data/bitmap-data
 ~~~
+
+CreateBitmapDataFixture also accepts --copy-reference or --unmultiply-probe
+after an output prefix to generate measurement SWFs. Serve those SWFs over HTTP
+in Flash Player 32 and collect their UTF-8 POST body at /result. The first mode
+produces copy-pixels-flash32.txt; the second uses tools/MeasureBitmapUnmultiply.as
+to measure each valid premultiplied channel for alpha values 1 through 255.
 
 ## Filters
 

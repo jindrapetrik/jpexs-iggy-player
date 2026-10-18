@@ -109,7 +109,7 @@ namespace IggyViewer {
                 Marshal.WriteIntPtr(function,16,Marshal.GetFunctionPointerForDelegate(clone));break;
             }
             if(originalClone==null)throw new InvalidDataException("Cannot locate BitmapData.clone.");
-            InstallPixelMethods(metadata,classes["Rectangle"]);
+            pointMetadata=classes["Point"];InstallPixelMethods(metadata,classes["Rectangle"]);
             loaderGetter=GetLoader;
             traits=Marshal.ReadIntPtr(classes["LoaderInfo"],72);methods=Marshal.ReadIntPtr(traits,72);
             methodsCount=(ushort)Marshal.ReadInt16(traits,26);
