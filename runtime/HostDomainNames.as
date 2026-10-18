@@ -7,6 +7,9 @@ package com.jpexs.iggy.runtime {
             if (name == "com.jpexs.iggy.runtime::HostEndian") return "flash.utils::Endian";
             if (name == "com.jpexs.iggy.runtime::HostCompressionAlgorithm") return "flash.utils::CompressionAlgorithm";
             if (name == "com.jpexs.iggy.runtime::HostObjectEncoding") return "flash.net::ObjectEncoding";
+            if (name == "com.jpexs.iggy.runtime::HostURLLoader") return "flash.net::URLLoader";
+            if (name == "com.jpexs.iggy.runtime::HostURLLoaderDataFormat") return "flash.net::URLLoaderDataFormat";
+            if (name == "com.jpexs.iggy.runtime::HostSecurityErrorEvent") return "flash.events::SecurityErrorEvent";
             var prefix:String = "com.jpexs.iggy.domain.d";
             if (name.indexOf(prefix) != 0) return name;
             var dot:int = name.indexOf(".", prefix.length);

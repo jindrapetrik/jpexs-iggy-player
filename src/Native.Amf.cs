@@ -77,6 +77,10 @@ namespace IggyViewer {
             if(!IsByteArray(value)||bytes.Length>16*1024*1024)throw new InvalidDataException("SharedObject AMF data exceeds 16 MiB.");
             ResizeByteArray(value,bytes.Length);if(bytes.Length!=0)Marshal.Copy(bytes,0,ByteArrayData(value),bytes.Length);Marshal.WriteInt32(value,59,0);
         }
+        internal void SetUrlLoaderBytes(IntPtr value,byte[] bytes) {
+            if(!IsByteArray(value)||bytes.Length>32*1024*1024)throw new InvalidDataException("URLLoader data exceeds 32 MiB.");
+            ResizeByteArray(value,bytes.Length);if(bytes.Length!=0)Marshal.Copy(bytes,0,ByteArrayData(value),bytes.Length);Marshal.WriteInt32(value,59,0);
+        }
         void InstallByteArrayConstructor() {
             ByteArrayCall original=(ByteArrayCall)Marshal.GetDelegateForFunctionPointer(Marshal.ReadIntPtr(byteArrayMetadata,56),typeof(ByteArrayCall));
             byteArrayDefaultEncoding=3;

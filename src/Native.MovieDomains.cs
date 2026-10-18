@@ -52,10 +52,15 @@ namespace IggyViewer {
                 if(name=="__AS3__.vec::Vector")lookup="::Vector";
                 if(name=="flash.display::Loader")lookup="com.jpexs.iggy.runtime::HostLoader";
                 if(name=="flash.net::URLRequest")lookup="com.jpexs.iggy.runtime::HostURLRequest";
+                if(name=="flash.net::URLLoader")lookup="com.jpexs.iggy.runtime::HostURLLoader";
+                if(name=="flash.net::URLLoaderDataFormat")lookup="com.jpexs.iggy.runtime::HostURLLoaderDataFormat";
+                if(name=="flash.events::SecurityErrorEvent")lookup="com.jpexs.iggy.runtime::HostSecurityErrorEvent";
                 IntPtr metadata=MovieLookup(vm,lookup);
                 if(metadata==IntPtr.Zero)builtins.TryGetValue(name.Substring(name.LastIndexOf("::",StringComparison.Ordinal)+2),out metadata);
                 if(metadata!=IntPtr.Zero&&!user.Contains(metadata))AddDomainDefinition(0,name,metadata);
             }
+            foreach(string name in new string[]{"URLLoader","URLLoaderDataFormat"})AddDomainDefinition(0,"flash.net::"+name,MovieLookup(vm,"com.jpexs.iggy.runtime::Host"+name));
+            AddDomainDefinition(0,"flash.events::SecurityErrorEvent",MovieLookup(vm,"com.jpexs.iggy.runtime::HostSecurityErrorEvent"));
         }
         internal string MovieDomainCall(string operation,string value) {
             if(operation=="__iggy_image_domain_current")return CurrentMovieDomain.ToString();

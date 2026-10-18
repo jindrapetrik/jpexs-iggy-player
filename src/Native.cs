@@ -63,6 +63,7 @@ namespace IggyViewer {
         CompilerLifetime compilerLifetime;
         internal MovieActivity Activity;
         internal long LoadedImageBytes {get{return imageLoader==null?0:imageLoader.AllocatedBytes;}}
+        internal int PendingDataLoads {get{return imageLoader==null?0:imageLoader.PendingDataLoads;}}
         internal string StorageDirectory=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"sharedobjects");
         internal int LoaderInfoStageReads {get{return loaderInfo==null?0:loaderInfo.StageReads;}}
         readonly List<Delegate> bindings = new List<Delegate>();

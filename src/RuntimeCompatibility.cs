@@ -14,13 +14,14 @@ namespace IggyViewer {
             emptyChannel=CreateEmptyChannel;
             int count=Marshal.ReadInt32(vm,modern?9648:9624);
             if(count<=0||count>250)throw new InvalidDataException("Unexpected Iggy built-in registry.");
-            IntPtr textEvent=IntPtr.Zero,errorEvent=IntPtr.Zero,channel=IntPtr.Zero;
+            IntPtr textEvent=IntPtr.Zero,errorEvent=IntPtr.Zero,baseErrorEvent=IntPtr.Zero,channel=IntPtr.Zero;
             for(int i=0;i<count;i++) {
                 IntPtr entry=IntPtr.Add(vm,(modern?3648:3624)+24*i);
                 string name=Marshal.PtrToStringAnsi(Marshal.ReadIntPtr(entry));
                 if(name=="DisplayObject"&&correctZeroScale)zeroScale=new ZeroScaleCompatibility(module,modern,Marshal.ReadIntPtr(entry,16),log);
                 if(name=="TextEvent")textEvent=Marshal.ReadIntPtr(Marshal.ReadIntPtr(entry,16),56);
                 if(name=="IOErrorEvent")errorEvent=Marshal.ReadIntPtr(entry,16);
+                if(name=="ErrorEvent")baseErrorEvent=Marshal.ReadIntPtr(entry,16);
                 if(name!="SoundChannel")continue;
                 IntPtr metadata=Marshal.ReadIntPtr(entry,16);
                 IntPtr expected=IntPtr.Add(module,modern?0x4b730:0xa6190);
@@ -32,6 +33,7 @@ namespace IggyViewer {
             // IOErrorEvent has the same four fields/arguments as TextEvent in
             // these versions; only its constructor was replaced by a stub.
             Marshal.WriteIntPtr(errorEvent,56,textEvent);
+            if(baseErrorEvent!=IntPtr.Zero)Marshal.WriteIntPtr(baseErrorEvent,56,textEvent);
             Marshal.WriteIntPtr(channel,56,Marshal.GetFunctionPointerForDelegate(emptyChannel));
             if(!modern)legacyProjection=new LegacyRootProjection(module,vm,log);
         }

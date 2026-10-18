@@ -436,12 +436,14 @@ namespace IggyViewer {
             foreach(IntPtr reference in domainObjects.Values)freeReference(native.Player,reference);domainObjects.Clear();
             foreach(DefinitionTicket definition in definitions)freeReference(native.Player,definition.Request);definitions.Clear();
             lock(sync){closed=true;foreach(Job job in jobs.Values){job.Cancelled=true;job.Pixels=null;job.MovieBytes=null;job.SourceBytes=null;}jobs.Clear();}
+            lock(sync)foreach(DataJob job in new List<DataJob>(dataJobs.Values))CancelData(job);
             foreach(Pixels pixels in bitmaps.Values){foreach(IntPtr owner in pixels.Owners)freeReference(native.Player,owner);pixels.Owners.Clear();}
             foreach(InfoOwner info in infos){freeReference(native.Player,info.Info);freeReference(native.Player,info.Owner);}infos.Clear();
             foreach(MovieTicket ticket in tickets){freeReference(native.Player,ticket.Request);freeReference(native.Player,ticket.Info);}tickets.Clear();
             foreach(MovieRoot root in roots){freeReference(native.Player,root.Root);freeReference(native.Player,root.Info);}roots.Clear();
         }
         internal void CancelScope(MovieActivity.Scope scope) {
+            lock(sync)foreach(DataJob job in new List<DataJob>(dataJobs.Values))if(MovieActivity.Within(job.Owner,scope))CancelData(job);
             lock(sync)foreach(Job job in new List<Job>(jobs.Values))if(MovieActivity.Within(job.Owner,scope)) {
                 job.Cancelled=true;job.Pixels=null;job.MovieBytes=null;job.SourceBytes=null;jobs.Remove(job.Token);
             }

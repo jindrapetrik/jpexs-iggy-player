@@ -178,6 +178,22 @@ loadBytes(ByteArray, LoaderContext) accepts PNG, JPEG and compiled 64-bit IGGY
 data. It snapshots the entire array, regardless of position, before returning;
 later writes to the caller's array do not affect decoding. Embedded
 DefineBinaryData ByteArray subclasses and writable arrays are supported.
+URLLoader loads local files asynchronously as text (UTF-8, or UTF-8/UTF-16 with
+BOM) or binary ByteArrays. It supports optional constructor requests, byte counters,
+OPEN/PROGRESS/COMPLETE, IOErrorEvent and SecurityErrorEvent, cancellation and reuse.
+Strong event listeners are retained in AS3 fields to survive native moving GC.
+Event listeners may close or replace the active load. Text preserves embedded NUL
+and supplementary characters; binary data starts at position zero. Large results
+use the direct VM bridge rather than ExternalInterface string conversion.
+Relative paths use the creating movie's directory, including loaders created later
+by a loaded movie's event handlers. Absolute local paths, file: URLs and escaped
+Unicode names are accepted; URL queries/fragments do not change the local filename.
+Unlike display Loader, URLLoader reads the exact file and never substitutes .iggy
+for .swf. Network/UNC addresses report asynchronous securityError without a network
+request. Only local GET without a body or custom headers is supported; VARIABLES
+and invalid dataFormat values are rejected explicitly. Limits are 32 MiB per file,
+128 MiB of pending data and 32 pending requests. unloadAndStop and movie shutdown
+cancel owned jobs; worker threads never access VM objects.
 ByteArray compatibility implements length, position, bytesAvailable, endian,
 readBytes/writeBytes, and Boolean, signed/unsigned integer, Float and Double
 reading/writing. Endian defaults to bigEndian for each instance. IEEE values
@@ -377,6 +393,7 @@ IggyPlayer.exe --self-test-runtime test-data/runtime.iggy output-directory
 IggyPlayer.exe --self-test-sharedobject test-data/sharedobject.iggy output-directory
 IggyPlayer.exe --self-test-sharedobject-autosave test-data/sharedobject-auto.iggy output-directory
 IggyPlayer.exe --self-test-loader test-data/loader.iggy output-directory
+IggyPlayer.exe --self-test-url-loader test-data/url-loader.iggy output-directory
 IggyPlayer.exe --self-test-movie-loader test-data/movie-loader.iggy output-directory
 IggyPlayer.exe --self-test-domains test-data/domains.iggy output-directory
 IggyPlayer.exe --self-test-loader-bytes test-data/bytes-loader.iggy output-directory

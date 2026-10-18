@@ -24,7 +24,7 @@ namespace IggyViewer {
         void StartAmfRequest(IntPtr info,IntPtr arguments) {
             string operation=ReadText(Marshal.ReadIntPtr(arguments,16))??"";
             amfRequests.Add(new AmfRequest {Request=reference(native.Player,info,1),Operation=operation,
-                Value=operation=="utf"||operation=="weak"||operation=="vector-type"||operation=="vector-class"||operation=="xml-document"||operation=="base64-encode"||operation=="base64-decode"||operation.StartsWith("store-",StringComparison.Ordinal)?reference(native.Player,Marshal.ReadIntPtr(arguments,24),0):IntPtr.Zero,
+                Value=operation=="utf"||operation=="weak"||operation=="vector-type"||operation=="vector-class"||operation=="xml-document"||operation=="base64-encode"||operation=="base64-decode"||operation.StartsWith("store-",StringComparison.Ordinal)||operation.StartsWith("data-",StringComparison.Ordinal)?reference(native.Player,Marshal.ReadIntPtr(arguments,24),0):IntPtr.Zero,
                 Payload=operation=="base64-decode"||operation=="store-write"||operation=="store-track"?reference(native.Player,Marshal.ReadIntPtr(arguments,32),0):IntPtr.Zero,
                 Text=operation=="schema"?ReadText(Marshal.ReadIntPtr(arguments,24)):null,Extra=ReadText(Marshal.ReadIntPtr(arguments,32))});
         }
@@ -33,6 +33,7 @@ namespace IggyViewer {
             for(int i=0;i<amfRequests.Count;i++)if(Marshal.ReadIntPtr(amfRequests[i].Request)==receiver) {
                 AmfRequest request=amfRequests[i];amfRequests.RemoveAt(i);
                 try {
+                    if(request.Operation.StartsWith("data-",StringComparison.Ordinal)) {result=DataContent(context,request);return true;}
                     if(request.Operation=="vector-type"||request.Operation=="vector-class") {
                         IntPtr value=Marshal.ReadIntPtr(request.Value),answer=request.Operation=="vector-type"?native.AmfVectorType(value):native.AmfVectorClass(value);
                         Marshal.WriteIntPtr(Marshal.ReadIntPtr(context,8),answer==IntPtr.Zero?nullValue:answer);return true;
