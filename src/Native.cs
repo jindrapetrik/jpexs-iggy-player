@@ -9,7 +9,7 @@ namespace IggyViewer {
     internal sealed class Log {
         readonly string path;
         public readonly List<string> Messages = new List<string>();
-        public Log(string path) { this.path = path; File.WriteAllText(path, "Iggy native player\r\n"); }
+        public Log(string path) { this.path = path; File.WriteAllText(path, Program.ProductName+"\r\n"); }
         public void Write(string text) {
             lock(Messages){Messages.Add(text);File.AppendAllText(path, DateTime.Now.ToString("HH:mm:ss.fff ") + text + "\r\n");}
         }

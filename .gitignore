@@ -35,5 +35,8 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
+# Related files and directories that should be ignored
+related/
+
 # Keep runtime/*.abc (embedded by build.ps1), test-data fixtures,
 # source files, build/test scripts and documentation in version control.

@@ -5,8 +5,13 @@ using System.IO;
 using System.Threading;
 using System.Windows.Forms;
 
+[assembly: System.Reflection.AssemblyTitle(IggyViewer.Program.ProductName)]
+[assembly: System.Reflection.AssemblyProduct(IggyViewer.Program.ProductName)]
+[assembly: System.Reflection.AssemblyCompany("Jindra Petřík (JPEXS)")]
+
 namespace IggyViewer {
     internal static class Program {
+        internal const string ProductName="JPEXS Iggy Player";
         internal static string FindDll(string directory) {
             foreach(string name in new string[]{"iggy_w64_final.dll","iggy_w64.dll"}) {
                 string candidate=Path.Combine(directory,"lib",name);
@@ -114,7 +119,7 @@ namespace IggyViewer {
                 return 0;
             } catch(Exception ex) {
                 log.Write(ex.ToString());
-                if(args.Length==0||!args[0].StartsWith("--"))MessageBox.Show(ex.Message+"\n\nLog: "+logPath,"Iggy Player",MessageBoxButtons.OK,MessageBoxIcon.Error);
+                if(args.Length==0||!args[0].StartsWith("--"))MessageBox.Show(ex.Message+"\n\nLog: "+logPath,ProductName,MessageBoxButtons.OK,MessageBoxIcon.Error);
                 return 1;
             }
         }
@@ -213,7 +218,7 @@ namespace IggyViewer {
             this.native=native;this.log=log;
             windowIcon=Icon.ExtractAssociatedIcon(Application.ExecutablePath);Icon=windowIcon;
             canvas.RenderFailed=delegate(Exception ex){timer.Stop();log.Write(ex.ToString());status.Text="OpenGL display failed. Select Playback > Renderer > Software.";};
-            Text="Iggy Player — native 64-bit runtime";Width=1040;Height=680;
+            Text=Program.ProductName;Width=1040;Height=680;
             MenuStrip menu=new MenuStrip();
             ToolStripMenuItem file=new ToolStripMenuItem("File");
             file.DropDownItems.Add("Open…",null,delegate {using(OpenFileDialog dialog=new OpenFileDialog {Filter="Iggy movies (*.iggy)|*.iggy|All files (*.*)|*.*"})if(dialog.ShowDialog(this)==DialogResult.OK)OpenFile(dialog.FileName);});
@@ -238,7 +243,11 @@ namespace IggyViewer {
             hardware.Click+=delegate {try{native.Renderer.SetBackend("opengl");updateRendering();RenderFrame();}catch(Exception ex){log.Write(ex.ToString());MessageBox.Show(this,ex.Message,"OpenGL unavailable",MessageBoxButtons.OK,MessageBoxIcon.Error);}};
             software.Click+=delegate {native.Renderer.SetBackend("software");updateRendering();RenderFrame();};
             rendering.DropDownItems.Add(hardware);rendering.DropDownItems.Add(software);playback.DropDownItems.Add(rendering);updateRendering();
-            menu.Items.Add(file);menu.Items.Add(playback);MainMenuStrip=menu;
+            ToolStripMenuItem help=new ToolStripMenuItem("Help");
+            help.DropDownItems.Add("About…",null,delegate {
+                MessageBox.Show(this,Program.ProductName+"\n\nAuthor: Jindra Petřík (JPEXS)","About "+Program.ProductName,MessageBoxButtons.OK,MessageBoxIcon.Information);
+            });
+            menu.Items.Add(file);menu.Items.Add(playback);menu.Items.Add(help);MainMenuStrip=menu;
             FlowLayoutPanel transport=new FlowLayoutPanel {Dock=DockStyle.Top,Height=34,Padding=new Padding(4,2,0,0)};
             Button toggle=new Button {Text="Play / Pause",AutoSize=true};toggle.Click+=delegate {pause.Checked=!pause.Checked;canvas.Focus();};
             Button previous=new Button {Text="◀",Width=36},next=new Button {Text="▶",Width=36};
@@ -269,7 +278,7 @@ namespace IggyViewer {
             try {
                 native.Open(file,Math.Max(1,canvas.Width),Math.Max(1,canvas.Height));native.SetPaused(paused);
                 updatingFrame=true;frame.Maximum=native.TotalFrames;frame.Value=1;updatingFrame=false;
-                frames.Text="/ "+native.TotalFrames;Text=Path.GetFileName(file)+" — Iggy Player";
+                frames.Text="/ "+native.TotalFrames;Text=Path.GetFileName(file)+" — "+Program.ProductName;
                 UpdateStatus();timer.Start();RenderFrame();canvas.Focus();
             }
             catch(Exception ex) {
