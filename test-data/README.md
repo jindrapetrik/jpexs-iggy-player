@@ -326,13 +326,32 @@ and bitmap storage collection are checked on both rendering backends.
 
 The shared URLLoader transport limits each download to 32 MiB and uses normal
 system certificate checks. Tests use the same scoped loopback certificate
-exception described above. Downloads are decoded in memory. Remote IGGY with
-static imports or companion textures is rejected with ioError; fetching those
-dependencies is not implemented yet. Direct SWF loading remains unsupported.
+exception described above. Downloads are decoded in memory. Direct SWF loading
+remains unsupported.
 
 Run --self-test-network-display test-data/network-display.iggy test-output/network-display,
 or use test.ps1 with optional -TestOpenGl. CreateDataLoaderFixture regenerates
 these fixtures together with URLLoader fixtures.
+
+network-dependencies.swf/network-dependencies.iggy add nested static imports,
+shared imports behind redirects, .swf-to-.iggy resolution and external RGBA
+textures on the main movie and an imported shape. Pixel checks verify the
+rendered textures on both backends. Tests cover raw/ordinary texture suffix
+fallback, delayed relative requests, imports from a remote loadBytes call,
+missing and corrupt resources, redirected cycles, rejection of file:// imports,
+allowCodeImport, dependency cancellation/shutdown and HTTPS certificate checks.
+Dependencies use GET without forwarding the root request's custom headers.
+The same 32 MiB download and 128 MiB pending-network limits apply to dependency
+buffers; the complete graph is also bounded by the native 32-library limit.
+
+Run --self-test-network-dependencies test-data/network-dependencies.iggy test-output/network-dependencies,
+or use test.ps1 with optional -TestOpenGl. Regenerate with:
+
+~~~powershell
+$classpath = 'tools;PATH_TO_FFDEC_JAR;PATH_TO_FFDEC_LIB/*'
+javac -encoding UTF-8 -cp $classpath tools/CreateBytesLoaderFixture.java tools/CreateNetworkDependenciesFixture.java
+java -cp $classpath CreateNetworkDependenciesFixture test-data/network-dependencies
+~~~
 
 ## Filters
 

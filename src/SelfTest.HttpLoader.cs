@@ -25,6 +25,10 @@ namespace IggyViewer {
             internal string CrossOrigin;
             internal readonly ManualResetEvent UploadDrain=new ManualResetEvent(false);
             internal readonly Dictionary<string,byte[]> Resources=new Dictionary<string,byte[]>(StringComparer.Ordinal);
+            internal readonly Dictionary<string,string> Redirects=new Dictionary<string,string>(StringComparer.Ordinal);
+            internal readonly HashSet<string> MissingPaths=new HashSet<string>(StringComparer.Ordinal),SlowPaths=new HashSet<string>(StringComparer.Ordinal);
+            readonly List<string> requestedPaths=new List<string>();
+            internal int Hits(string path) {lock(requestedPaths){int count=0;foreach(string requested in requestedPaths)if(requested==path)count++;return count;}}
             internal readonly string Url;
             internal HttpTestServer(X509Certificate2 certificate=null) {
                 this.certificate=certificate;listener.Start();Url=(certificate==null?"http":"https")+"://127.0.0.1:"+((IPEndPoint)listener.LocalEndpoint).Port;
@@ -59,6 +63,14 @@ namespace IggyViewer {
                         byte[] body=new byte[bodyLength];int readBody=0;
                         while(readBody<bodyLength){int read=stream.Read(body,readBody,Math.Min(65536,bodyLength-readBody));if(read==0)return;readBody+=read;}
                         string resourcePath=path.Split('?')[0];byte[] resource;
+                        lock(requestedPaths)requestedPaths.Add(resourcePath);
+                        string redirected;
+                        if(Redirects.TryGetValue(resourcePath,out redirected)){Respond(stream,302,"Location: "+redirected+"\r\n",new byte[0]);return;}
+                        if(MissingPaths.Contains(resourcePath)){Respond(stream,404,"",new byte[0]);return;}
+                        if(SlowPaths.Contains(resourcePath)) {
+                            Interlocked.Increment(ref Hanging);
+                            try{if(stream.ReadByte()<0)Interlocked.Increment(ref Aborted);}catch(IOException){Interlocked.Increment(ref Aborted);}return;
+                        }
                         if(Resources.TryGetValue(resourcePath,out resource)){
                             if(resourcePath=="/remote/post.png"&&(first[0]!="POST"||Encoding.UTF8.GetString(body)!="image=1"||!headers.ContainsKey("X-Test")||headers["X-Test"]!="display")){Respond(stream,400,"",new byte[0]);return;}
                             Respond(stream,200,"",resource);return;

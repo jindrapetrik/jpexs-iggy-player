@@ -358,11 +358,11 @@ namespace IggyViewer {
             foreach(string p in candidates)if(File.Exists(p))return Path.GetFullPath(p);
             return null;
         }
-        void CollectRuntimeSources(string from,byte[] bytes,List<byte[]> sources,HashSet<string> visited) {
+        void CollectRuntimeSources(string from,byte[] bytes,List<byte[]> sources,HashSet<string> visited,MovieResources resources=null) {
             if(!visited.Add(from))return;
             foreach(string url in Container.Imports(bytes)) {
-                string file=ResolveImport(from,url);if(file==null||visited.Contains(file))continue;
-                byte[] data=File.ReadAllBytes(file);sources.Add(data);CollectRuntimeSources(file,data,sources,visited);
+                string file=resources==null?ResolveImport(from,url):resources.Resolve(from,url);if(file==null||visited.Contains(file))continue;
+                byte[] data=resources==null?File.ReadAllBytes(file):resources.Movies[file].Bytes;sources.Add(data);CollectRuntimeSources(file,data,sources,visited,resources);
             }
         }
         void LoadImports(string from,byte[] bytes,HashSet<string> visiting) {
@@ -390,7 +390,24 @@ namespace IggyViewer {
             }
             visiting.Remove(from);
         }
-        void InstallTextures(IntPtr generic,string file) {
+        void InstallTextures(IntPtr generic,string file,MovieResources resources=null) {
+            if(resources!=null) {
+                MovieResources.Movie movie=resources.Movies[file];
+                if(movie.Textures!=null) {
+                    IntPtr metadata=Marshal.ReadIntPtr(generic,512);
+                    if(metadata==IntPtr.Zero)throw new InvalidDataException("Downloaded movie has no native texture metadata: "+movie.Url);
+                    IntPtr records=Marshal.ReadIntPtr(metadata,8),dictionary=Marshal.ReadIntPtr(generic,152);
+                    int count=(ushort)Marshal.ReadInt16(metadata),characters=Marshal.ReadInt32(generic,160);
+                    if(count==0||records==IntPtr.Zero||dictionary==IntPtr.Zero)throw new InvalidDataException("Invalid native texture metadata: "+movie.Url);
+                    fixed(byte* data=movie.Textures){int result=0;installResources(generic,(IntPtr)data,(uint)movie.Textures.Length,(IntPtr)(&result));}
+                    for(int i=0;i<count;i++) {
+                        int id=(ushort)Marshal.ReadInt16(records,12*i+10);IntPtr image=id<characters?Marshal.ReadIntPtr(dictionary,8*id):IntPtr.Zero;
+                        if(image==IntPtr.Zero||Marshal.ReadByte(image)!=4||Marshal.ReadIntPtr(image,40)==IntPtr.Zero)throw new InvalidDataException("Cannot install downloaded Iggy texture: "+movie.Url);
+                    }
+                    log.Write("Installed downloaded textures for "+movie.Url);
+                }
+                return;
+            }
             string resource=Path.ChangeExtension(file,".raw.iggytex");
             if(!File.Exists(resource))resource=Path.ChangeExtension(file,".iggytex");
             if(!File.Exists(resource)) {

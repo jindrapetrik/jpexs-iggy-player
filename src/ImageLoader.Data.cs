@@ -12,11 +12,12 @@ namespace IggyViewer {
         sealed class DataJob {
             internal string Token,Url,BaseUrl,Error,Method,ContentType,ResponseUrl;
             internal Job Display;
+            internal Dictionary<string,MovieResources.Movie> CachedMovies;
             internal int Domain;
             internal bool AllowCode;
             internal MovieActivity.Scope Owner;
-            internal int Loaded,Total,Reserved;
-            internal bool Ready,Cancelled;
+            internal int Loaded,Total,Reserved,ResponseCode;
+            internal bool Ready,Cancelled,Cached;
             internal byte[] Bytes,Upload;
             internal readonly List<KeyValuePair<string,string>> Headers=new List<KeyValuePair<string,string>>();
             internal HttpWebRequest Request;
@@ -139,6 +140,11 @@ namespace IggyViewer {
                 for(int hop=0;;hop++) {
                     received=false;redirected=hop!=0;
                     if((uri.Scheme!="http"&&uri.Scheme!="https")||uri.UserInfo.Length!=0){FailData(job,"security|Unsupported HTTP redirect or URL credentials");return;}
+                    MovieResources.Movie cached;
+                    if(job.CachedMovies!=null&&job.CachedMovies.TryGetValue(uri.AbsoluteUri,out cached)) {
+                        lock(sync)if(!closed&&!job.Cancelled){job.Bytes=cached.Bytes;job.ResponseUrl=uri.AbsoluteUri;job.Loaded=job.Total=cached.Bytes.Length;job.Ready=true;job.Cached=true;}
+                        return;
+                    }
                     HttpWebRequest request=(HttpWebRequest)WebRequest.Create(uri);
                     request.Method=method;request.AllowAutoRedirect=false;request.Timeout=15000;request.ReadWriteTimeout=15000;
                     request.AutomaticDecompression=DecompressionMethods.GZip|DecompressionMethods.Deflate;
@@ -162,7 +168,7 @@ namespace IggyViewer {
                     catch(WebException error){response=error.Response as HttpWebResponse;if(response==null)throw;}
                     using(response) {
                         int code=(int)response.StatusCode;
-                        lock(sync){if(closed||job.Cancelled)return;job.ResponseUrl=uri.AbsoluteUri;job.Statuses.Enqueue(code+"|"+(hop==0?"0":"1"));}
+                        lock(sync){if(closed||job.Cancelled)return;job.ResponseCode=code;job.ResponseUrl=uri.AbsoluteUri;job.Statuses.Enqueue(code+"|"+(hop==0?"0":"1"));}
                         received=true;
                         if(code==301||code==302||code==303||code==307||code==308) {
                             if(hop>=8)throw new IOException("URLLoader exceeded eight HTTP redirects");

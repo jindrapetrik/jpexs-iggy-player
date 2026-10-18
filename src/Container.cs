@@ -4,6 +4,21 @@ using System.Collections.Generic;
 
 namespace IggyViewer {
     internal static partial class Container {
+        internal static int TextureCount(byte[] bytes) {
+            if(bytes.Length<64||BitConverter.ToUInt32(bytes,0)!=0xed0a6749||bytes[8]!=1||bytes[9]!=64)throw new InvalidDataException("Network dependencies require a little-endian 64-bit IGGY container.");
+            int entries=BitConverter.ToInt32(bytes,28),count=0;
+            if(entries<1||entries>(bytes.Length-32)/16)throw new InvalidDataException("Invalid Iggy directory.");
+            for(int i=0;i<entries;i++) {
+                int at=32+16*i,size=BitConverter.ToInt32(bytes,at+4),start=BitConverter.ToInt32(bytes,at+12);
+                if(start<0||size<0||start>bytes.Length-size)throw new InvalidDataException("Invalid Iggy data block.");
+                if(BitConverter.ToInt32(bytes,at)!=8||size==0)continue;
+                if(size<16)throw new InvalidDataException("Truncated Iggy texture metadata.");
+                int textures=BitConverter.ToUInt16(bytes,start);
+                if(textures>(size-16)/12)throw new InvalidDataException("Invalid Iggy texture records.");
+                count+=textures;
+            }
+            return count;
+        }
         public static string[] EmbeddedFonts(byte[] bytes) {
             HashSet<string> fonts=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if(bytes.Length<64||bytes[9]!=64||bytes[8]!=1)return new string[0];

@@ -21,19 +21,19 @@ namespace IggyViewer {
             foreach(byte[] abc in Container.ReadAbcs(prepared))abcs.Add(new RuntimeAbc(abc).RenameClasses(names));
             return Container.Prepare(Container.ReplaceAbcs(prepared,abcs,log,imports),log);
         }
-        Dictionary<string,string> RegisterDomainImports(string from,byte[] source,int domain,RuntimeScriptPlan plan,Dictionary<string,string> names,List<DomainLibrary> ordered,HashSet<string> visiting) {
+        Dictionary<string,string> RegisterDomainImports(string from,byte[] source,int domain,RuntimeScriptPlan plan,Dictionary<string,string> names,List<DomainLibrary> ordered,HashSet<string> visiting,MovieResources resources=null) {
             from=Path.GetFullPath(from);if(!visiting.Add(from))throw new InvalidDataException("Cyclic Iggy imports: "+from);
             Dictionary<string,string> urls=new Dictionary<string,string>(StringComparer.Ordinal);
             try {
                 foreach(string url in Container.Imports(source)) {
-                    string file=ResolveImport(from,url);
+                    string file=resources==null?ResolveImport(from,url):resources.Resolve(from,url);
                     if(file==null){log.Write("Missing import: "+url+" (requested by "+from+")");continue;}
                     if(visiting.Contains(file))throw new InvalidDataException("Cyclic Iggy imports: "+file);
-                    byte[] original=File.ReadAllBytes(file);string key;
-                    using(SHA256 sha=SHA256.Create())key=domain+"|"+file+"|"+BitConverter.ToString(sha.ComputeHash(original));
+                    byte[] original=resources==null?File.ReadAllBytes(file):resources.Movies[file].Bytes;string key;
+                    using(SHA256 sha=SHA256.Create())key=domain+"|"+file+"|"+(resources==null?"":resources.Movies[file].Key)+"|"+BitConverter.ToString(sha.ComputeHash(original));
                     DomainLibrary library;
                     if(!domainLibraries.TryGetValue(key,out library)) {
-                        Dictionary<string,string> dependencies=RegisterDomainImports(file,original,domain,plan,names,ordered,visiting);
+                        Dictionary<string,string> dependencies=RegisterDomainImports(file,original,domain,plan,names,ordered,visiting,resources);
                         if(libraries.Count>=32)throw new IOException("The native runtime's 32-library limit has been reached.");
                         string privateUrl="__iggy_domain_"+domain+"_"+Guid.NewGuid().ToString("N")+".iggy";
                         byte[] bytes=PrepareDomainMovie(original,plan,names,dependencies),name=Encoding.UTF8.GetBytes(privateUrl+"\0");
@@ -42,7 +42,7 @@ namespace IggyViewer {
                         int id;fixed(byte* data=bytes)fixed(byte* text=name)id=createLibrary((IntPtr)text,(IntPtr)data,(uint)bytes.Length,(IntPtr)options);
                         if(id<0||id>31)throw new InvalidDataException("DLL rejected domain import: "+url);
                         libraries.Add(id);IntPtr generic=libraryGeneric(id);
-                        NormalizeTimelineMatrices(generic);NormalizeEmptyStyleTables(generic);NormalizeAudio(generic);InstallTextures(generic,file);
+                        NormalizeTimelineMatrices(generic);NormalizeEmptyStyleTables(generic);NormalizeAudio(generic);InstallTextures(generic,file,resources);
                         foreach(string font in Container.EmbeddedFonts(bytes))embeddedFonts.Add(font);
                         library=new DomainLibrary {Id=id,Url=privateUrl,Source=original,ClassNames=names,Dependencies=new List<DomainLibrary>(ordered)};domainLibraries.Add(key,library);
                         log.Write("Registered domain "+domain+" import "+url+" from "+file);
