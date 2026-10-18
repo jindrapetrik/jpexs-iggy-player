@@ -25,16 +25,25 @@ namespace IggyViewer {
                     Check(image.GetPixel(180,20).ToArgb()==Color.Yellow.ToArgb()&&image.GetPixel(240,20).ToArgb()==Color.Blue.ToArgb(),"Opaque and embedded texture updates");
                     image.Save(Path.Combine(output,"pixels-updated.png"));
                 }
+                Call(native,"","bulk");native.Frame(false);
+                Check(ReadValue(native,"failures")==0,"ByteArray bulk pixel access: "+ReadString(native,"details"));
+                using(Bitmap image=native.Renderer.Snapshot()) {
+                    Check(image.GetPixel(14,14).ToArgb()==Color.Cyan.ToArgb(),"setPixels updates an existing rendered texture");
+                    Check(image.GetPixel(94,14).ToArgb()==Color.Red.ToArgb(),"Partial setPixels updates texture before throwing");
+                    image.Save(Path.Combine(output,"pixels-bulk.png"));
+                }
+                native.Bind<Native.VoidPI>("IggyPlayerGarbageCollect")(native.Player,100);native.Frame(false);Call(native,"","bulkRetained");
                 Call(native,"","convert");Call(native,"","disposeDisplayed");native.Frame(false);
                 using(Bitmap image=native.Renderer.Snapshot())Check(image.GetPixel(94,14).ToArgb()==Color.White.ToArgb(),"Disposed displayed bitmap is transparent");
                 Check(ReadValue(native,"failures")==0,"Pixel mutations/argument conversion/disposal: "+ReadString(native,"details"));
                 native.Bind<Native.VoidPI>("IggyPlayerGarbageCollect")(native.Player,100);native.Frame(false);
                 Call(native,"","drop");for(int i=0;i<6;i++){native.Bind<Native.VoidPI>("IggyPlayerGarbageCollect")(native.Player,100);native.Frame(true);}
-                Check(native.LoadedImageBytes==0,"All bitmap pixel storage is collected");native.Close();
+                Check(native.LoadedImageBytes==0,"All bitmap pixel storage is collected");
+                Check(native.ByteArrayBufferCount==0,"Bulk pixel ByteArray storage is collected");native.Close();
             }
             foreach(string message in log.Messages)Check(message.IndexOf("Uncaught exception",StringComparison.Ordinal)<0,"No uncaught BitmapData errors");
             Check(Hash(File.ReadAllBytes(movie))==hash,"BitmapData fixture unchanged");
-            log.Write("PASS: BitmapData pixel access/alpha/clipping, independent clones, embedded and loaded images, mutable rendered textures, dispose, conversions and GC.");
+            log.Write("PASS: BitmapData pixel and ByteArray access, endian/position/partial errors, alpha/clipping, independent clones, embedded and loaded images, mutable textures, dispose, conversions and GC.");
         }
     }
 }

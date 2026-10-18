@@ -356,10 +356,15 @@ java -cp $classpath CreateNetworkDependenciesFixture test-data/network-dependenc
 ## BitmapData pixel editing
 
 bitmap-data.swf/bitmap-data.iggy check getPixel/getPixel32, setPixel/setPixel32,
-fillRect, rect, clone and dispose on ordinary, embedded and loaded bitmap data.
+getPixels/setPixels, fillRect, rect, clone and dispose on ordinary, embedded
+and loaded bitmap data. Bulk transfers also exercise embedded ByteArray subclasses.
 Tests cover premultiplied alpha, opaque images, clipping, independent copies,
 argument conversion (including disposal during conversion), native GC and
 visible texture changes after the first render on software and OpenGL.
+Bulk tests cover ARGB order, ByteArray endian/position/defaultObjectEncoding,
+clipping, fractional endpoint rounding, empty regions, partial writes on short
+input and collection of returned byte arrays. Expected bulk behavior was checked
+against Adobe Flash Player 32, including its generic Error for short input.
 The player limits bitmap dimensions to 3840 and owned pixel storage to 128 MiB.
 
 Run --self-test-bitmap-data test-data/bitmap-data.iggy test-output/bitmap-data,

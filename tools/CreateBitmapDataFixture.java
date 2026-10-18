@@ -8,11 +8,13 @@ public class CreateBitmapDataFixture {
     public static void main(String[] args) throws Exception {
         Path output=Path.of(args[0]);SWF movie=CreateBytesLoaderFixture.movie();
         CreateBytesLoaderFixture.compile(movie,null,"package { import flash.display.BitmapData; public class EmbeddedPixels extends BitmapData { public function EmbeddedPixels(w:int,h:int){super(w,h);} } }");
+        CreateBytesLoaderFixture.compile(movie,null,"package { import flash.utils.ByteArray; public class PixelBytes extends ByteArray { public function PixelBytes(){super();} } }");
         CreateBytesLoaderFixture.compile(movie,null,Files.readString(output.resolveSibling("bitmap-data/Main.as")));
         DefineBitsLossless2Tag pixels=new DefineBitsLossless2Tag(movie);pixels.characterID=1;pixels.bitmapFormat=5;pixels.bitmapWidth=4;pixels.bitmapHeight=4;
         ByteArrayOutputStream buffer=new ByteArrayOutputStream();try(DeflaterOutputStream zip=new DeflaterOutputStream(buffer)){for(int i=0;i<16;i++){zip.write(255);zip.write(255);zip.write(0);zip.write(0);}}
         pixels.zlibBitmapData=new ByteArrayRange(buffer.toByteArray());movie.addTag(pixels);
         SymbolClassTag symbols=new SymbolClassTag(movie);symbols.tags.add(0);symbols.names.add("BitmapDataMain");symbols.tags.add(1);symbols.names.add("EmbeddedPixels");
+        DefineBinaryDataTag binary=new DefineBinaryDataTag(movie);binary.tag=2;binary.binaryData=new ByteArrayRange(new byte[]{(byte)255,0x44,0x55,0x66});movie.addTag(binary);symbols.tags.add(2);symbols.names.add("PixelBytes");
         CreateBytesLoaderFixture.write(movie,output,symbols);
     }
 }
