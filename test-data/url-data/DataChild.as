@@ -8,11 +8,12 @@ package {
     public class DataChild extends MovieClip {
         public var done:Boolean;
         public var passed:Boolean;
+        public var networkUrl:String;
         private var timer:Timer;
         private var data:URLLoader;
         public function DataChild() {super();stop();timer=new Timer(10,1);timer.addEventListener(TimerEvent.TIMER,later);timer.start();}
         private function later(event:TimerEvent):void {
-            data=new URLLoader();data.addEventListener(Event.COMPLETE,function(event:Event):void {passed=data.data=="child-relative";done=true;});data.load(new URLRequest("local.txt"));
+            data=new URLLoader();data.addEventListener(Event.COMPLETE,function(event:Event):void {passed=data.data=="child-relative";done=true;});data.load(new URLRequest(networkUrl==null?"local.txt":networkUrl));
         }
         public function startPending():void {data.load(new URLRequest("../../url-data/bytes.bin"));}
     }

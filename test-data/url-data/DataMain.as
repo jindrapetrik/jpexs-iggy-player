@@ -50,7 +50,7 @@ package {
             watch("raw","url-data/raw.swf",true,4);
             testVariables();
             watchError("url-data/missing",false);
-            watchError("https://example.invalid/data",true);
+            watchError("ftp://example.invalid/data",true);
             var cancel:URLLoader = new URLLoader(); retained.push(cancel); cancel.addEventListener(Event.COMPLETE,unexpected);cancel.addEventListener(IOErrorEvent.IO_ERROR,unexpected);
             cancel.load(new URLRequest("url-data/missing")); cancel.close();
             var open:URLLoader = new URLLoader(); retained.push(open);open.addEventListener(Event.OPEN,function(event:Event):void {open.close();});open.addEventListener(Event.COMPLETE,function(event:Event):void {cancelledEvents++;details+="open-complete-"+event.target["bytesLoaded"]+",";});open.load(new URLRequest("url-data/bytes.bin"));

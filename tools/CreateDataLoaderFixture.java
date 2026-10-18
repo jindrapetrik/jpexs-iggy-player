@@ -21,5 +21,8 @@ public class CreateDataLoaderFixture {
             SymbolClassTag symbols=new SymbolClassTag(movie);symbols.tags.add(0);symbols.names.add(main);
             CreateBytesLoaderFixture.write(movie,main.equals("DataMain")?output:data.resolve(main.equals("DataChild")?"sub/child":main.equals("DataOnly")?"only":"variables-only"),symbols);
         }
+        SWF http=CreateBytesLoaderFixture.movie();CreateBytesLoaderFixture.compile(http,null,Files.readString(data.resolve("HttpMain.as")));
+        SymbolClassTag symbols=new SymbolClassTag(http);symbols.tags.add(0);symbols.names.add("HttpMain");
+        CreateBytesLoaderFixture.write(http,output.resolveSibling("http-loader"),symbols);
     }
 }

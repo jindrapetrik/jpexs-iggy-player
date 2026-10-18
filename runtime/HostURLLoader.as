@@ -36,7 +36,7 @@ package com.jpexs.iggy.runtime {
             if (request == null) throw new TypeError("URLLoader request is null");
             if (request.url == null || request.url.length == 0) throw new ArgumentError("URLLoader URL is empty");
             if (dataFormat != "text" && dataFormat != "binary" && dataFormat != "variables") throw new ArgumentError("Unsupported URLLoader data format");
-            if (request.method != "GET" || request.data != null || (request.requestHeaders != null && request.requestHeaders.length != 0)) throw new ArgumentError("Local URLLoader supports GET without a body or headers");
+            if (request.method != "GET" || request.data != null || (request.requestHeaders != null && request.requestHeaders.length != 0)) throw new ArgumentError("URLLoader supports GET without a body or headers");
             cancel(); data = null; bytesLoaded = 0; bytesTotal = 0; opened = false; progress = -1;
             token = String(new HostAmfRequest("data-start", request.url, baseUrl).result);
             timer = new Timer(10); timer.addEventListener(TimerEvent.TIMER, poll); timer.start();
@@ -45,6 +45,17 @@ package com.jpexs.iggy.runtime {
             var serial:uint = generation;
             var active:String = token;
             var status:String = token.indexOf("error|") == 0 || token.indexOf("security|") == 0 ? token : String(new HostAmfRequest("data-poll", token).result);
+            var http:String = token.indexOf("error|") == 0 || token.indexOf("security|") == 0 ? "" : String(new HostAmfRequest("data-status", token).result);
+            if (!opened && http.length != 0) {
+                opened = true; dispatchEvent(new Event(Event.OPEN));
+                if (serial != generation || token != active) return;
+            }
+            while (http.length != 0) {
+                var fields:Array = http.split("|");
+                dispatchEvent(new HostHTTPStatusEvent("httpStatus", false, false, int(fields[0]), fields[1] == "1"));
+                if (serial != generation || token != active) return;
+                http = String(new HostAmfRequest("data-status", token).result);
+            }
             if (status.indexOf("error|") == 0 || status.indexOf("security|") == 0) {
                 cancel();
                 if (status.indexOf("security|") == 0) dispatchEvent(new HostSecurityErrorEvent("securityError", false, false, status.substr(9)));

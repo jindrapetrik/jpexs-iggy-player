@@ -269,6 +269,27 @@ format changes and malformed responses. url-data/variables-only tests activation
 without URLLoader references.
 The .swf/.iggy files named raw are data inputs, not movies to open in the player.
 
+http-loader.swf/http-loader.iggy and url-data/HttpMain.as exercise HTTP/HTTPS
+GET with a loopback-only server embedded in --self-test-http-loader. Coverage
+includes UTF-8 text, binary and variables, escaped queries, status events/clones,
+redirects and loops, gzip, chunked/unknown lengths, HTTP and connection errors,
+truncated and oversized decoded responses, cancellation/replacement from event
+handlers, child unload, socket shutdown and garbage collection. HTTPS rejects
+the untrusted fixture first; a scoped test-only callback then trusts that exact
+loopback certificate for the successful TLS 1.2 test. Production uses the system
+certificate checks. No system certificate store is changed.
+
+url-data/localhost.pfx is a public test key with password changeit. Regenerate
+it with a JDK keytool (this certificate is only for the local test server):
+
+~~~powershell
+keytool '-J-Dkeystore.pkcs12.legacy' -genkeypair -alias localhost -keyalg RSA -keysize 2048 -validity 36500 -dname 'CN=localhost' -ext 'SAN=dns:localhost,ip:127.0.0.1' -storetype PKCS12 -keystore test-data/url-data/localhost.pfx -storepass changeit -keypass changeit
+~~~
+
+HTTP tests need permission to open loopback sockets and never contact Internet
+services. Run --self-test-http-loader test-data/http-loader.iggy test-output/http-loader
+or use test.ps1; -TestOpenGl also exercises the network loader with OpenGL.
+
 Regenerate with a compatible FFDec library and its dependencies:
 
 ~~~powershell
