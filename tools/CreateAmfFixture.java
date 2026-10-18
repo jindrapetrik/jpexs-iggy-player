@@ -6,10 +6,14 @@ import java.nio.file.*;
 public class CreateAmfFixture {
     public static void main(String[] args) throws Exception {
         Path output = Path.of(args[0]); SWF movie = CreateBytesLoaderFixture.movie();
-        for (String name : new String[]{"AmfBase", "AmfRecord", "AmfSealed"}) CreateBytesLoaderFixture.compile(movie, null, Files.readString(output.resolveSibling("amf/" + name + ".as")));
+        for (String name : new String[]{"AmfBase", "AmfRecord", "AmfSealed", "AmfExternal"}) CreateBytesLoaderFixture.compile(movie, null, Files.readString(output.resolveSibling("amf/" + name + ".as")));
         CreateBytesLoaderFixture.compile(movie, null, Files.readString(output.resolveSibling("amf/AmfMain.as")));
         SymbolClassTag symbols = new SymbolClassTag(movie); symbols.tags.add(0); symbols.names.add("AmfMain");
         CreateBytesLoaderFixture.write(movie, output, symbols);
+        SWF only = CreateBytesLoaderFixture.movie();
+        CreateBytesLoaderFixture.compile(only, null, Files.readString(output.resolveSibling("amf/AmfOnly.as")));
+        SymbolClassTag onlySymbols = new SymbolClassTag(only); onlySymbols.tags.add(0); onlySymbols.names.add("AmfOnly");
+        CreateBytesLoaderFixture.write(only, output.resolveSibling("amf/only"), onlySymbols);
         SWF library = CreateBytesLoaderFixture.movie();
         CreateBytesLoaderFixture.compile(library, null, Files.readString(output.resolveSibling("amf/ImportedRecord.as")));
         CreateBytesLoaderFixture.write(library, output.resolveSibling("amf/library"), new SymbolClassTag(library));

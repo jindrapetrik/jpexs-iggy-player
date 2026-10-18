@@ -199,6 +199,14 @@ characters). They cover cyclic/shared references, associative arrays, dates,
 nested ByteArrays, typed classes, inherited fields, accessors, [Transient],
 alias remapping and fallback for unknown aliases. Malformed input, resource
 limits, atomic failed writes, encoding defaults, moving GC and reopen are checked.
+The extended cases cover IExternalizable private state, shared enclosing reference
+tables and cycles, mixed endian primitives, callback errors and expired streams.
+ByteArray is checked through IDataInput/IDataOutput. Vector int/uint/Number/object
+wire values, fixed lengths, wildcard/custom/string/nested element types and
+Dictionary object keys, cycles and weak-key flags are included. XML/XMLDocument
+cases cover UTF-8, namespaces, comments, references, malformed input and DTD
+rejection. Retained values are checked again after moving garbage collection.
+The amf/only movie verifies activation without ByteArray or Loader references.
 Two loaded child movies import a typed class and verify alias isolation between
 inherited and isolated application domains. The sources are under amf/.
 

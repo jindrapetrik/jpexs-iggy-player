@@ -2,6 +2,9 @@ package com.jpexs.iggy.runtime {
     import flash.utils.ByteArray;
     import flash.utils.getQualifiedClassName;
     import flash.errors.EOFError;
+    import flash.utils.IExternalizable;
+    import flash.utils.Dictionary;
+    import flash.xml.XMLDocument;
     // Each public read/write has its own reference tables and network byte order.
     public class HostAmf {
         private static const MAX_BYTES:uint = 16777216;
@@ -13,6 +16,22 @@ package com.jpexs.iggy.runtime {
         private var stringIndex:Object = {};
         private var traits:Array = [];
         private var values:uint;
+        public function checkSize():void { size(); }
+        public function readNested(depth:uint, encoding:uint):* {
+            var endian:String = data.endian; data.endian = "bigEndian";
+            try { return encoding == 0 ? read0(depth) : read3(depth); } finally { data.endian = endian; }
+        }
+        public function writeNested(value:*, depth:uint, encoding:uint):void {
+            var endian:String = data.endian; data.endian = "bigEndian";
+            try { if (encoding == 0) write0(value, depth); else write3(value, depth); } finally { data.endian = endian; }
+        }
+        private function external(value:*, depth:uint, writing:Boolean):void {
+            if (!(value is IExternalizable)) throw new TypeError("AMF externalizable alias does not implement IExternalizable");
+            var stream:HostAmfIO = new HostAmfIO(this, data, depth + 1, writing);
+            var endian:String = data.endian; data.endian = "bigEndian";
+            try { if (writing) IExternalizable(value).writeExternal(stream); else IExternalizable(value).readExternal(stream); size(); }
+            finally { data.endian = endian; stream.close(); }
+        }
         public static function read(bytes:ByteArray):* {
             var start:uint = bytes.position;
             if (start >= bytes.length) throw new EOFError("End of AMF data");
@@ -74,11 +93,32 @@ package com.jpexs.iggy.runtime {
             var description:String = String(new HostAmfRequest("schema", name).result);
             if (description == "?") throw new TypeError("AMF cannot serialize class " + name);
             var parts:Array = description.split("\n");
-            if (parts[1] == "1") throw new Error("IExternalizable AMF objects are not supported yet");
             var fields:Array = parts.length < 3 || parts[2] == "" ? [] : parts.slice(2);
-            return {name:HostAmfAliases.name(value), dynamic:parts[0] == "1", fields:fields};
+            var externalizable:Boolean = value is IExternalizable;
+            return {name:HostAmfAliases.name(value), dynamic:!externalizable && parts[0] == "1", external:externalizable, fields:externalizable ? [] : fields};
         }
         private function instance(name:String):Object { var type:Class = name.length == 0 ? null : HostAmfAliases.find(name); return type == null ? {} : new type(); }
+        private function vectorName(type:Class, depth:uint = 0):String {
+            if (depth > 32) throw new RangeError("AMF vector type nesting limit");
+            if (type === Vector) return "*";
+            var element:* = new HostAmfRequest("vector-type", type).result;
+            if (element != null) return "__AS3__.vec::Vector.<" + vectorName(element, depth + 1) + ">";
+            var alias:String = HostAmfAliases.name(type); return alias.length == 0 ? getQualifiedClassName(type) : alias;
+        }
+        private function vectorClass(name:String, depth:uint = 0):Class {
+            if (depth > 32) throw new RangeError("AMF vector type nesting limit");
+            if (name == "*" || name == "") return Vector;
+            var type:Class = HostAmfAliases.find(name);
+            if (type == null) {
+                if (name == "Object") type = Object; else if (name == "String") type = String;
+                else if (name == "Boolean") type = Boolean; else if (name == "int") type = int;
+                else if (name == "uint") type = uint; else if (name == "Number") type = Number;
+                else if (name == "Array") type = Array; else if (name == "Date") type = Date;
+                else if (name.indexOf("__AS3__.vec::Vector.<") == 0 && name.charAt(name.length - 1) == ">") type = vectorClass(name.substring(21, name.length - 1), depth + 1);
+                else type = Object;
+            }
+            return Class(new HostAmfRequest("vector-class", type).result);
+        }
         private function dense(key:String, length:uint):Boolean { var index:uint = uint(key); return String(index) == key && index < length; }
         private function assign(target:*, key:String, value:*):void {
             var index:uint = uint(key);
@@ -89,7 +129,7 @@ package com.jpexs.iggy.runtime {
         private function traitIndex(trait:Object):int {
             for (var i:int = 0; i < traits.length; i++) {
                 var other:Object = traits[i];
-                if (other.name == trait.name && other.dynamic == trait.dynamic && other.fields.join("\n") == trait.fields.join("\n")) return i;
+                if (other.name == trait.name && other.dynamic == trait.dynamic && other.external == trait.external && other.fields.join("\n") == trait.fields.join("\n")) return i;
             }
             return -1;
         }
@@ -104,23 +144,43 @@ package com.jpexs.iggy.runtime {
             }
             if (typeof value == "string") { data.writeByte(6); putString3(String(value)); return; }
             if (typeof value != "object") throw new TypeError("Unsupported AMF value");
-            var marker:uint = value is Date ? 8 : value is Array ? 9 : value is ByteArray ? 12 : 10;
+            var element:* = new HostAmfRequest("vector-type", value).result;
+            var marker:uint = element != null ? (element === int ? 13 : element === uint ? 14 : element === Number ? 15 : 16) : value is XMLDocument ? 7 : value is XML ? 11 : value is Date ? 8 : value is Array ? 9 : value is ByteArray ? 12 : value is Dictionary ? 17 : 10;
             data.writeByte(marker); var index:int = objects3.indexOf(value);
             if (index >= 0) { write29(uint(index) << 1); return; } add(objects3, value);
+            if (marker == 7 || marker == 11) { var xml:ByteArray = utf(marker == 7 ? value.toString() : value.toXMLString()); write29((xml.length << 1) | 1); data.writeBytes(xml); size(); return; }
             if (marker == 8) { write29(1); data.writeDouble(Date(value).getTime()); return; }
             if (marker == 12) { var bytes:ByteArray = ByteArray(value); if (bytes.length > MAX_BYTES) throw new RangeError("AMF ByteArray size limit"); write29((bytes.length << 1) | 1); data.writeBytes(bytes); size(); return; }
             var key:String;
+            if (marker >= 13 && marker <= 16) {
+                var vectorLength:uint = count(value.length); write29((vectorLength << 1) | 1); data.writeBoolean(value.fixed);
+                if (marker == 16) putString3(vectorName(element));
+                for (var position:uint = 0; position < vectorLength; position++) {
+                    if (marker == 13) data.writeInt(value[position]); else if (marker == 14) data.writeUnsignedInt(value[position]);
+                    else if (marker == 15) data.writeDouble(value[position]); else write3(value[position], depth + 1);
+                }
+                size(); return;
+            }
+            if (marker == 17) {
+                var entries:Array = []; var dictionaryKey:*;
+                for (dictionaryKey in value) { count(entries.length + 1); entries.push(dictionaryKey); }
+                write29((entries.length << 1) | 1); data.writeBoolean(String(new HostAmfRequest("weak", value).result) == "1");
+                for each (dictionaryKey in entries) { write3(typeof dictionaryKey == "number" && (dictionaryKey == int(dictionaryKey) || dictionaryKey == uint(dictionaryKey)) ? String(dictionaryKey) : dictionaryKey, depth + 1); write3(value[dictionaryKey], depth + 1); }
+                return;
+            }
             if (marker == 9) {
                 var length:uint = count(value.length); write29((length << 1) | 1);
                 for (key in value) if (!dense(key, length)) { if (key.length == 0) throw new Error("Empty AMF3 associative key"); putString3(key); write3(value[key], depth + 1); }
                 putString3(""); for (var i:uint = 0; i < length; i++) write3(value[i], depth + 1); return;
             }
             var trait:Object = schema(value); index = traitIndex(trait);
+            if (trait.external && trait.name.length == 0) throw new TypeError("Externalizable classes require a registered alias");
             if (index >= 0) write29((uint(index) << 2) | 1);
             else {
-                count(trait.fields.length); add(traits, trait); write29((trait.fields.length << 4) | (trait.dynamic ? 8 : 0) | 3); putString3(trait.name);
+                count(trait.fields.length); add(traits, trait); write29((trait.fields.length << 4) | (trait.dynamic ? 8 : 0) | (trait.external ? 4 : 0) | 3); putString3(trait.name);
                 for each (key in trait.fields) putString3(key);
             }
+            if (trait.external) { external(value, depth, true); return; }
             for each (key in trait.fields) write3(value[key], depth + 1);
             if (trait.dynamic) {
                 for (key in value) if (trait.fields.indexOf(key) < 0) { if (key.length == 0) throw new Error("Empty AMF3 dynamic key"); putString3(key); write3(value[key], depth + 1); }
@@ -132,16 +192,35 @@ package com.jpexs.iggy.runtime {
             if (marker == 0) return undefined; if (marker == 1) return null; if (marker == 2) return false; if (marker == 3) return true;
             if (marker == 4) { var integer:uint = read29(); return int((integer & 0x10000000) != 0 ? integer | 0xe0000000 : integer); }
             if (marker == 5) return data.readDouble(); if (marker == 6) return string3();
-            if (marker != 8 && marker != 9 && marker != 10 && marker != 12) throw new Error("Unsupported AMF3 marker " + marker);
+            if (marker < 7 || marker > 17) throw new Error("Unsupported AMF3 marker " + marker);
             var header:uint = read29();
             if ((header & 1) == 0) {
                 var found:* = reference(objects3, header >> 1);
-                if ((marker == 8 && !(found is Date)) || (marker == 9 && !(found is Array)) || (marker == 12 && !(found is ByteArray))) throw new Error("Invalid AMF object reference type");
+                if ((marker == 8 && !(found is Date)) || (marker == 9 && !(found is Array)) || (marker == 12 && !(found is ByteArray)) || (marker == 17 && !(found is Dictionary))) throw new Error("Invalid AMF object reference type");
+                if ((marker == 7 && !(found is XMLDocument)) || (marker == 11 && !(found is XML))) throw new Error("Invalid AMF XML reference type");
+                if (marker >= 13 && marker <= 16) {
+                    var foundType:* = new HostAmfRequest("vector-type", found).result;
+                    if (foundType == null || (marker == 13 && foundType !== int) || (marker == 14 && foundType !== uint) || (marker == 15 && foundType !== Number) || (marker == 16 && (foundType === int || foundType === uint || foundType === Number))) throw new Error("Invalid AMF vector reference type");
+                }
                 return found;
             }
             var result:*; var key:String; var length:uint;
+            if (marker == 7 || marker == 11) { var xml:String = text(header >> 1); result = marker == 7 ? new XMLDocument(xml) : new XML(xml); add(objects3, result); return result; }
+            if (marker >= 13 && marker <= 16) {
+                length = count(header >> 1); var fixedLength:Boolean = data.readBoolean();
+                if (marker == 13) result = new Vector.<int>(length, fixedLength); else if (marker == 14) result = new Vector.<uint>(length, fixedLength);
+                else if (marker == 15) result = new Vector.<Number>(length, fixedLength);
+                else { var type:Class = vectorClass(string3()); result = new type(length, fixedLength); }
+                add(objects3, result);
+                for (var position:uint = 0; position < length; position++) result[position] = marker == 13 ? data.readInt() : marker == 14 ? data.readUnsignedInt() : marker == 15 ? data.readDouble() : read3(depth + 1);
+                return result;
+            }
             if (marker == 8) { result = new Date(data.readDouble()); add(objects3, result); return result; }
             if (marker == 12) { length = header >> 1; if (length > MAX_BYTES || data.position + length > MAX_BYTES) throw new RangeError("AMF ByteArray size limit"); result = new ByteArray(); if (length != 0) data.readBytes(result, 0, length); add(objects3, result); return result; }
+            if (marker == 17) {
+                length = count(header >> 1); result = new Dictionary(data.readBoolean()); add(objects3, result);
+                for (var entry:uint = 0; entry < length; entry++) { var dictionaryKey:* = read3(depth + 1); result[dictionaryKey] = read3(depth + 1); } return result;
+            }
             if (marker == 9) {
                 length = count(header >> 1); result = []; add(objects3, result); var members:uint = 0;
                 while ((key = string3()).length != 0) { count(++members); assign(result, key, read3(depth + 1)); }
@@ -150,11 +229,12 @@ package com.jpexs.iggy.runtime {
             var trait:Object;
             if ((header & 2) == 0) trait = reference(traits, header >> 2);
             else {
-                if ((header & 4) != 0) throw new Error("IExternalizable AMF objects are not supported yet");
-                length = count(header >> 4); trait = {name:string3(), dynamic:(header & 8) != 0, fields:[]};
+                var externalizable:Boolean = (header & 4) != 0;
+                length = externalizable ? 0 : count(header >> 4); trait = {name:string3(), dynamic:!externalizable && (header & 8) != 0, external:externalizable, fields:[]};
                 for (i = 0; i < length; i++) trait.fields.push(string3()); add(traits, trait);
             }
             result = instance(trait.name); add(objects3, result);
+            if (trait.external) { external(result, depth, false); return result; }
             for each (key in trait.fields) result[key] = read3(depth + 1);
             if (trait.dynamic) { members = 0; while ((key = string3()).length != 0) { count(++members); result[key] = read3(depth + 1); } }
             return result;
@@ -169,8 +249,9 @@ package com.jpexs.iggy.runtime {
                 if (bytes.length > 65535) data.writeUnsignedInt(bytes.length); else data.writeShort(bytes.length); data.writeBytes(bytes); return;
             }
             if (typeof value != "object") throw new TypeError("Unsupported AMF value");
+            if (value is XML || value is XMLDocument) { var xml:ByteArray = utf(value is XML ? value.toXMLString() : value.toString()); data.writeByte(15); data.writeUnsignedInt(xml.length); data.writeBytes(xml); return; }
             if (value is Date) { data.writeByte(11); data.writeDouble(Date(value).getTime()); data.writeShort(0); return; }
-            if (value is ByteArray) { data.writeByte(17); write3(value, depth + 1); return; }
+            if (value is ByteArray || value is Dictionary || value is IExternalizable || new HostAmfRequest("vector-type", value).result != null) { data.writeByte(17); write3(value, depth + 1); return; }
             var index:int = objects0.indexOf(value);
             if (index >= 0) { if (index > 65535) throw new RangeError("AMF0 reference overflow"); data.writeByte(7); data.writeShort(index); return; }
             add(objects0, value); var key:String;
@@ -196,6 +277,7 @@ package com.jpexs.iggy.runtime {
             if (marker == 7) return reference(objects0, data.readUnsignedShort());
             if (marker == 17) return read3(depth + 1);
             if (marker == 11) { var time:Number = data.readDouble(); data.readShort(); return new Date(time); }
+            if (marker == 15) return new XMLDocument(text(data.readUnsignedInt()));
             var result:*; var length:uint;
             if (marker == 10) { length = count(data.readUnsignedInt()); result = []; add(objects0, result); for (var i:uint = 0; i < length; i++) result.push(read0(depth + 1)); return result; }
             if (marker == 3) result = {};

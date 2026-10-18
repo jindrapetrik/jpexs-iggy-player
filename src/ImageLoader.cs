@@ -79,6 +79,9 @@ namespace IggyViewer {
             }
             native.InitializeMovieDomains(classes);
             native.InstallByteArrays(classes);
+            InstallAmfDictionary(classes["Dictionary"]);
+            native.InstallAmfVector(classes["Vector"]);
+            InstallAmfXml(classes["XML"]);
             // These error subclasses have native stub constructors.
             foreach(string name in new string[]{"ReferenceError","SecurityError","ArgumentError","TypeError","RangeError","EOFError"})if(classes.ContainsKey(name)&&classes.ContainsKey("Error"))
                 Marshal.WriteIntPtr(classes[name],56,Marshal.ReadIntPtr(classes["Error"],56));
@@ -403,6 +406,7 @@ namespace IggyViewer {
         internal void Prune() {
             native.PruneByteArrays();
             PruneAmfRequests();
+            PruneXml();
             PruneByteRequests();
             for(int i=definitions.Count-1;i>=0;i--)if(Marshal.ReadIntPtr(definitions[i].Request).ToInt64()==7){freeReference(native.Player,definitions[i].Request);definitions.RemoveAt(i);}
             for(int i=tickets.Count-1;i>=0;i--)if(Marshal.ReadIntPtr(tickets[i].Request).ToInt64()==7){freeReference(native.Player,tickets[i].Request);freeReference(native.Player,tickets[i].Info);tickets.RemoveAt(i);}
@@ -426,6 +430,8 @@ namespace IggyViewer {
         }
         internal void CancelAll() {
             foreach(AmfRequest request in amfRequests)FreeAmfRequest(request);amfRequests.Clear();
+            foreach(IntPtr item in weakDictionaries)freeReference(native.Player,item);weakDictionaries.Clear();
+            foreach(XmlValue item in xmlValues)freeReference(native.Player,item.Reference);xmlValues.Clear();
             foreach(ByteRequest request in byteRequests)freeReference(native.Player,request.Request);byteRequests.Clear();
             foreach(IntPtr reference in domainObjects.Values)freeReference(native.Player,reference);domainObjects.Clear();
             foreach(DefinitionTicket definition in definitions)freeReference(native.Player,definition.Request);definitions.Clear();

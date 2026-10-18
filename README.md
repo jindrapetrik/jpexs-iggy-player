@@ -177,7 +177,9 @@ Endian and CompressionAlgorithm constants are supplied by the host compatibility
 layer. These methods also work in movies that do not reference Loader.
 readObject/writeObject support AMF0 and AMF3 primitives, UTF-8 strings, objects,
 arrays (including associative entries), dates, shared references and cycles.
-AMF3 also supports nested ByteArrays; AMF0 uses the AMF3 escape for those values.
+AMF3 also supports nested ByteArrays, XML/XMLDocument, all four Vector types and
+Dictionary entries with object keys. AMF0 supports XMLDocument and uses the AMF3
+escape for ByteArrays, vectors, dictionaries and externalizable objects.
 objectEncoding and the static defaultObjectEncoding accept 0 or 3; the default
 is AMF3 and is captured when an array is constructed. AMF always uses its protocol
 byte order, independently of endian. Each call starts fresh reference tables.
@@ -187,9 +189,21 @@ members. Alias lookup searches the current application domain and its parents;
 isolated loaded domains have separate registrations. Unknown aliases decode as
 anonymous objects. Failed writes leave the destination unchanged; failed reads
 advance position by the consumed bytes. Each operation is limited to 16 MiB,
-32 nesting levels and 100000 collection entries. Externalizable objects, XML,
-vectors, dictionaries and custom dynamic-property writers are not implemented;
-unsupported types and malformed references raise typed AS3 errors.
+32 nesting levels and 100000 collection entries. IExternalizable classes require
+a registered alias; their readExternal/writeExternal callbacks receive bounded
+IDataInput/IDataOutput streams. Nested readObject/writeObject calls share the
+enclosing reference tables, preserving cycles and references across callbacks.
+Retained streams are invalid after the callback returns. ByteArray also implements
+IDataInput/IDataOutput. Vector element types, fixed lengths and Dictionary's
+serialized weak-keys flag survive AMF round trips. The native Dictionary still
+retains its keys; this does not implement weak-key garbage collection.
+XML support currently covers construction from text, toString/toXMLString and
+formatting/ignore settings; XMLDocument provides construction, parseXML and
+toString. Full DOM/E4X operations are not implemented. XML input is bounded to
+16 MiB and 128 nested levels; DTDs are rejected. Native bytecode casts to nested
+vector types remain unsupported, although those vectors can be serialized.
+Custom dynamic-property writers are not implemented. Unsupported types and
+malformed references raise typed AS3 errors.
 LZMA and newer ByteArray APIs absent from the DLL (including clear, deflate and
 inflate aliases) are not implemented. Use compress("deflate")/uncompress("deflate")
 for raw DEFLATE.

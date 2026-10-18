@@ -13,7 +13,7 @@ namespace IggyViewer {
         readonly List<int> namespaces=new List<int>{0};
         readonly List<byte> namespaceKinds=new List<byte>{0};
         readonly List<int[]> namespaceSets=new List<int[]>{new int[0]};
-        sealed class Name {public int Kind,Ns,Text;public byte[] Raw;}
+        sealed class Name {public int Kind,Ns,Text,TypeBase;public int[] TypeArguments;public byte[] Raw;}
         readonly List<Name> names=new List<Name>{null};
         readonly int stringsStart,setsStart,setsEnd,tail;
         int cursor;
@@ -96,7 +96,7 @@ namespace IggyViewer {
                         if(set<=0||set>=namespaceSets.Count)throw new InvalidDataException("Invalid ABC namespace set.");
                         if(namespaceSets[set].Length==1)name.Ns=namespaceSets[set][0];
                         break;
-                    case 29:Var();for(int k=Count();k>0;k--)Var();break;
+                    case 29:name.TypeBase=Count();name.TypeArguments=new int[Count()];for(int k=0;k<name.TypeArguments.Length;k++)name.TypeArguments[k]=Count();break;
                     default:throw new InvalidDataException("Unknown ABC multiname.");
                 }
                 name.Raw=new byte[cursor-start];Buffer.BlockCopy(bytes,start,name.Raw,0,name.Raw.Length);names.Add(name);
@@ -184,6 +184,7 @@ namespace IggyViewer {
             Dictionary<int,string> changes=new Dictionary<int,string>();
             for(int i=1;i<names.Count;i++) {
                 string q=Qualified(i);
+                if(loader&&q=="__AS3__.vec::Vector")changes.Add(i,"Vector");
                 if(loader&&!domainsOnly&&q=="flash.display::Loader")changes.Add(i,"HostLoader");
                 if(loader&&!domainsOnly&&q=="flash.net::URLRequest")changes.Add(i,"HostURLRequest");
                 if(loader&&!domainsOnly&&q=="flash.events::IOErrorEvent")changes.Add(i,"HostIOErrorEvent");
@@ -207,12 +208,18 @@ namespace IggyViewer {
             using(MemoryStream output=new MemoryStream())using(BinaryWriter w=new BinaryWriter(output)) {
                 w.Write(bytes,0,stringsStart);WriteVar(w,texts.Count);
                 for(int i=1;i<texts.Count;i++){byte[] s=Encoding.UTF8.GetBytes(texts[i]);WriteVar(w,s.Length);w.Write(s);}
-                WriteVar(w,namespaces.Count+1);
+                WriteVar(w,namespaces.Count+2);
                 for(int i=1;i<namespaces.Count;i++){w.Write(namespaceKinds[i]);WriteVar(w,namespaces[i]);}
                 w.Write((byte)0x16);WriteVar(w,packageText);
+                w.Write((byte)0x16);WriteVar(w,0);
                 w.Write(bytes,setsStart,setsEnd-setsStart);WriteVar(w,names.Count);
                 for(int i=1;i<names.Count;i++) {
-                    int text;if(nameText.TryGetValue(i,out text)){w.Write((byte)(names[i].Kind==9?7:names[i].Kind==14?13:names[i].Kind));WriteVar(w,namespaces.Count);WriteVar(w,text);}
+                    if(names[i].Kind==29&&names[i].TypeArguments.Length==1&&names[i].TypeArguments[0]==0&&changes.ContainsKey(names[i].TypeBase)&&changes[names[i].TypeBase]=="Vector") {
+                        // Native wildcard TypeName resolution dereferences a null
+                        // element class. The generic template is Vector.<*>.
+                        w.Write((byte)7);WriteVar(w,namespaces.Count+1);WriteVar(w,nameText[names[i].TypeBase]);continue;
+                    }
+                    int text;if(nameText.TryGetValue(i,out text)){w.Write((byte)(names[i].Kind==9?7:names[i].Kind==14?13:names[i].Kind));WriteVar(w,namespaces.Count+(Qualified(i)=="__AS3__.vec::Vector"?1:0));WriteVar(w,text);}
                     else w.Write(names[i].Raw);
                 }
                 w.Write(bytes,tail,bytes.Length-tail);return output.ToArray();
@@ -244,6 +251,8 @@ namespace IggyViewer {
             loader|=references.Contains("flash.utils::ByteArray");
             loader|=references.Contains("flash.utils::Endian")||references.Contains("flash.utils::CompressionAlgorithm");
             loader|=references.Contains("flash.net::ObjectEncoding")||references.Contains("flash.net::registerClassAlias")||references.Contains("flash.net::getClassByAlias");
+            loader|=references.Contains("__AS3__.vec::Vector")||references.Contains("flash.utils::IExternalizable")||references.Contains("flash.utils::IDataInput")||references.Contains("flash.utils::IDataOutput");
+            loader|=references.Contains("::XML")||references.Contains("flash.xml::XMLDocument");
             foreach(string timer in new string[]{"setInterval","setTimeout","clearInterval","clearTimeout"})if(references.Contains("flash.utils::"+timer)&&!definitions.Contains("flash.utils::"+timer))timers=true;
             shared|=loader&&!definitions.Contains("flash.net::SharedObject");
             fileList=references.Contains("flash.net::FileReferenceList")&&!definitions.Contains("flash.net::FileReferenceList");
@@ -257,6 +266,8 @@ namespace IggyViewer {
                 if(definitions.Contains(name))throw new InvalidDataException("Movie conflicts with the host ByteArray namespace.");
             foreach(string name in new string[]{"flash.net::ObjectEncoding","flash.net::registerClassAlias","flash.net::getClassByAlias","com.jpexs.iggy.runtime::HostObjectEncoding","com.jpexs.iggy.runtime::HostAmf","com.jpexs.iggy.runtime::HostAmfRequest","com.jpexs.iggy.runtime::HostAmfAliases","com.jpexs.iggy.runtime::HostRegisterClassAlias","com.jpexs.iggy.runtime::HostGetClassByAlias"})
                 if(definitions.Contains(name))throw new InvalidDataException("Movie conflicts with the host AMF namespace.");
+            foreach(string name in new string[]{"flash.utils::IDataInput","flash.utils::IDataOutput","flash.utils::IExternalizable","flash.xml::XMLDocument","com.jpexs.iggy.runtime::HostAmfIO"})
+                if(definitions.Contains(name))throw new InvalidDataException("Movie conflicts with the host AMF interfaces.");
             foreach(string name in new string[]{"flash.system::ApplicationDomain","flash.system::LoaderContext","com.jpexs.iggy.runtime::HostDefinitionRequest","com.jpexs.iggy.runtime::HostBytesRequest","com.jpexs.iggy.runtime::HostDomainBinding","com.jpexs.iggy.runtime::HostDomainFactory","com.jpexs.iggy.runtime::HostDomainNames","com.jpexs.iggy.runtime::HostApplicationDomain","com.jpexs.iggy.runtime::HostLoaderContext","com.jpexs.iggy.runtime::HostGetDefinitionByName","com.jpexs.iggy.runtime::HostGetQualifiedClassName","com.jpexs.iggy.runtime::HostGetQualifiedSuperclassName"})
                 if(definitions.Contains(name))throw new InvalidDataException("Movie conflicts with the host application domain namespace.");
         }

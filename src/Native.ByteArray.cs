@@ -30,6 +30,7 @@ namespace IggyViewer {
             Marshal.WriteIntPtr(byteArrayMetadata,16,replacement);
             InstallByteArrayConstructor();InstallByteArrayMethods(Marshal.ReadIntPtr(byteArrayMetadata,72),false);
             InstallByteArrayMethods(Marshal.ReadIntPtr(byteArrayMetadata,80),true);
+            InstallAmfInterfaces(vm);
         }
         void InstallByteArrayMethods(IntPtr traits,bool statics) {
             foreach(int table in new int[]{64,72,80}) {
@@ -84,6 +85,7 @@ namespace IggyViewer {
         void ReleaseByteArrays() {
             foreach(IntPtr buffer in byteArrayBuffers)Marshal.FreeHGlobal(buffer);
             byteArrayBuffers.Clear();byteArrayCallbacks.Clear();byteArrayErrors.Clear();amfSchemas.Clear();byteArrayMetadata=IntPtr.Zero;byteArrayFinalizer=null;byteArrayConstructor=null;
+            if(byteArrayAmfInterfaces!=IntPtr.Zero){Marshal.FreeHGlobal(byteArrayAmfInterfaces);byteArrayAmfInterfaces=IntPtr.Zero;}
         }
         uint ByteArrayArgument(IntPtr context,int index) {
             if(Marshal.ReadInt32(context,16)<index)return 0;

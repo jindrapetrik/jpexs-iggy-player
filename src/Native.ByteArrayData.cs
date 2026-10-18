@@ -34,7 +34,7 @@ namespace IggyViewer {
                 Activity.FreeHostReference(byteArrayStates[i].Reference);byteArrayStates.RemoveAt(i);
             }
         }
-        void DetachByteArrays() {foreach(ByteArrayState state in byteArrayStates)Activity.FreeHostReference(state.Reference);byteArrayStates.Clear();}
+        void DetachByteArrays() {DetachAmfInterfaces();foreach(ByteArrayState state in byteArrayStates)Activity.FreeHostReference(state.Reference);byteArrayStates.Clear();}
         bool ByteArrayLittleEndian(IntPtr value) {ByteArrayState state=ByteArraySettings(value);return state!=null&&state.LittleEndian;}
         static IntPtr ByteArrayReceiver(IntPtr context) {return Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,24));}
         static IntPtr ByteArrayParameter(IntPtr context,int index) {return Marshal.ReadInt32(context,16)<index?IntPtr.Zero:Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,24),8*index);}

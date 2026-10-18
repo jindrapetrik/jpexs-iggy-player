@@ -1,6 +1,7 @@
 package com.jpexs.iggy.runtime {
     public class HostDomainNames {
         public static function original(name:String):String {
+            if (name == "Vector") return "__AS3__.vec::Vector";
             if (name == "com.jpexs.iggy.runtime::HostApplicationDomain") return "flash.system::ApplicationDomain";
             if (name == "com.jpexs.iggy.runtime::HostLoaderContext") return "flash.system::LoaderContext";
             if (name == "com.jpexs.iggy.runtime::HostEndian") return "flash.utils::Endian";
