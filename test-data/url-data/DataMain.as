@@ -37,8 +37,8 @@ package {
             caught = false; try { fresh.close(); } catch (closeError:Error) { caught = true; } check(caught,"inactive-close");
             fresh.dataFormat = "invalid";
             caught = false; try { fresh.load(new URLRequest("url-data/utf8.txt")); } catch (formatError:ArgumentError) { caught = true; } check(caught,"unsupported-format");
-            fresh.dataFormat = URLLoaderDataFormat.TEXT; var post:URLRequest = new URLRequest("url-data/utf8.txt"); post.method = "POST";
-            caught = false; try { fresh.load(post); } catch (methodError:ArgumentError) { caught = true; } check(caught,"unsupported-method");
+            fresh.dataFormat = URLLoaderDataFormat.TEXT; var post:URLRequest = new URLRequest("url-data/utf8.txt");
+            caught = false; try { post.method = "PATCH"; } catch (methodError:ArgumentError) { caught = true; } check(caught,"unsupported-method");
             watch("text","url-data/utf8.txt",false,22);
             watch("ctor","url-data/utf8.txt",false,22,true);
             watch("binary","url-data/bytes.bin",true,2097152);

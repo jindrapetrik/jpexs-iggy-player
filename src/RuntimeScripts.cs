@@ -190,6 +190,8 @@ namespace IggyViewer {
                 if(loader&&!domainsOnly&&q=="flash.net::URLLoader")changes.Add(i,"HostURLLoader");
                 if(loader&&q=="flash.net::URLLoaderDataFormat")changes.Add(i,"HostURLLoaderDataFormat");
                 if(loader&&q=="flash.net::URLVariables")changes.Add(i,"HostURLVariables");
+                if(loader&&q=="flash.net::URLRequestMethod")changes.Add(i,"HostURLRequestMethod");
+                if(loader&&q=="flash.net::URLRequestHeader")changes.Add(i,"HostURLRequestHeader");
                 if(loader&&!domainsOnly&&q=="flash.events::SecurityErrorEvent")changes.Add(i,"HostSecurityErrorEvent");
                 if(loader&&q=="flash.events::HTTPStatusEvent")changes.Add(i,"HostHTTPStatusEvent");
                 if(loader&&!domainsOnly&&q=="flash.events::IOErrorEvent")changes.Add(i,"HostIOErrorEvent");
@@ -261,6 +263,7 @@ namespace IggyViewer {
             loader|=shared;
             loader|=references.Contains("flash.net::URLLoader")||references.Contains("flash.net::URLLoaderDataFormat")||references.Contains("flash.events::SecurityErrorEvent");
             loader|=references.Contains("flash.net::URLVariables");
+            loader|=references.Contains("flash.net::URLRequestMethod")||references.Contains("flash.net::URLRequestHeader");
             loader|=references.Contains("flash.events::HTTPStatusEvent");
             foreach(string timer in new string[]{"setInterval","setTimeout","clearInterval","clearTimeout"})if(references.Contains("flash.utils::"+timer)&&!definitions.Contains("flash.utils::"+timer))timers=true;
             shared|=loader&&!definitions.Contains("flash.net::SharedObject");
@@ -273,6 +276,7 @@ namespace IggyViewer {
             foreach(string name in new string[]{"flash.net::URLLoader","flash.net::URLLoaderDataFormat","flash.events::SecurityErrorEvent","com.jpexs.iggy.runtime::HostURLLoader","com.jpexs.iggy.runtime::HostURLLoaderDataFormat","com.jpexs.iggy.runtime::HostSecurityErrorEvent"})
                 if(definitions.Contains(name))throw new InvalidDataException("Movie conflicts with the host URLLoader namespace.");
             if(definitions.Contains("flash.net::URLVariables")||definitions.Contains("com.jpexs.iggy.runtime::HostURLVariables"))throw new InvalidDataException("Movie conflicts with the host URLVariables namespace.");
+            foreach(string name in new string[]{"flash.net::URLRequestMethod","flash.net::URLRequestHeader","com.jpexs.iggy.runtime::HostURLRequestMethod","com.jpexs.iggy.runtime::HostURLRequestHeader"})if(definitions.Contains(name))throw new InvalidDataException("Movie conflicts with the host URLRequest namespace.");
             if(definitions.Contains("flash.events::HTTPStatusEvent")||definitions.Contains("com.jpexs.iggy.runtime::HostHTTPStatusEvent"))throw new InvalidDataException("Movie conflicts with the host HTTPStatusEvent namespace.");
             if(definitions.Contains("com.jpexs.iggy.runtime::HostTimers")||definitions.Contains("com.jpexs.iggy.runtime::HostTimerTask"))throw new InvalidDataException("Movie conflicts with the host timer namespace.");
             foreach(string name in new string[]{"flash.utils::Endian","flash.utils::CompressionAlgorithm","com.jpexs.iggy.runtime::HostEndian","com.jpexs.iggy.runtime::HostCompressionAlgorithm"})

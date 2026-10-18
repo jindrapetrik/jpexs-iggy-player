@@ -3,6 +3,8 @@ package {
     import flash.display.Loader;
     import flash.net.URLLoader;
     import flash.net.URLRequest;
+    import flash.net.URLRequestMethod;
+    import flash.net.URLRequestHeader;
     import flash.net.URLVariables;
     import flash.events.Event;
     import flash.events.HTTPStatusEvent;
@@ -23,6 +25,7 @@ package {
         public var cancelled:uint;
         public var cancelledEvents:uint;
         public var replaced:uint;
+        public var sent:uint;
         public var active:URLLoader;
         public var child:Loader;
         private var retained:Array = [];
@@ -72,6 +75,62 @@ package {
             loader.load(new URLRequest(baseUrl+path));
         }
         private function unexpected(event:Event):void {cancelledEvents++;}
+        private function send(request:URLRequest, expected:String, binary:Boolean = false):void {
+            var loader:URLLoader=new URLLoader();retained.push(loader);if(binary)loader.dataFormat="binary";
+            loader.addEventListener(Event.COMPLETE,function(event:Event):void {
+                sent++;
+                if(binary){var data:ByteArray=loader.data as ByteArray;check(data!=null && data.length==256 && data.position==0,"post-binary-size");if(data!=null)for(var i:uint=0;i<data.length;i++)check(data.readUnsignedByte()==i,"post-binary-byte");}
+                else check(loader.data===expected,"request-payload-"+sent+":"+loader.data);
+            });
+            loader.addEventListener(IOErrorEvent.IO_ERROR,function(event:IOErrorEvent):void {failures++;details+="request-io:"+event.text+",";});
+            loader.addEventListener(SecurityErrorEvent.SECURITY_ERROR,unexpected);
+            loader.load(request);
+        }
+        public function requests():void {
+            check(new URLRequestHeader().name=="" && new URLRequestHeader().value=="" && URLRequestMethod.GET=="GET" && URLRequestMethod.POST=="POST","request-api-defaults");
+            check(getDefinitionByName("flash.net.URLRequestHeader")===URLRequestHeader && getQualifiedClassName(URLRequestMethod)=="flash.net::URLRequestMethod" && getQualifiedClassName(new URLRequest(baseUrl))=="flash.net::URLRequest","request-reflection");
+            var request:URLRequest=new URLRequest(baseUrl+"/inspect");request.method=URLRequestMethod.POST;request.contentType="text/plain; charset=utf-8";request.data="ž🙂\u0000body";
+            request.requestHeaders=[new URLRequestHeader("X-Test","first"),new URLRequestHeader("Accept","application/json")];
+            send(request,"POST\n/inspect\ntext/plain; charset=utf-8\nfirst\napplication/json\nž🙂\u0000body");
+            request.url=baseUrl+"/missing";request.method="GET";request.data="changed";request.requestHeaders[0].value="changed";
+            var form:URLVariables=new URLVariables();form.word=["ž🙂","a +"];
+            request=new URLRequest(baseUrl+"/inspect");request.method="POST";request.data=form;
+            send(request,"POST\n/inspect\napplication/x-www-form-urlencoded\n\n\nword=%C5%BE%F0%9F%99%82&word=a%20%2B");form.word[0]="changed";
+            request=new URLRequest(baseUrl+"/inspect-query?base=1#fragment");request.data="x=one&y=a%2Bb";
+            send(request,"GET\n/inspect-query?base=1&x=one&y=a%2Bb\n\n\n\n");check(request.url.indexOf("#fragment")>=0,"get-keeps-source-url");
+            request=new URLRequest(baseUrl+"/inspect-query?#fragment");request.data=new URLVariables("word=%C5%BE%F0%9F%99%82");
+            send(request,"GET\n/inspect-query?word=%C5%BE%F0%9F%99%82\n\n\n\n");
+            var bytes:ByteArray=new ByteArray();for(var i:uint=0;i<256;i++)bytes.writeByte(i);bytes.position=7;
+            request=new URLRequest(baseUrl+"/echo");request.method="POST";request.contentType="application/octet-stream";request.data=bytes;send(request,"",true);
+            check(bytes.position==7,"post-preserves-byte-position");bytes.length=0;
+            request=new URLRequest(baseUrl+"/inspect");request.method="POST";request.data="plain";request.requestHeaders=[new URLRequestHeader("content-type","text/plain"),new URLRequestHeader("X-Test","one"),new URLRequestHeader("x-test","two")];
+            send(request,"POST\n/inspect\ntext/plain\none,two\n\nplain");
+            request=new URLRequest(baseUrl+"/inspect");request.method="POST";send(request,"GET\n/inspect\n\n\n\n");
+            for each(var code:uint in [301,302,303,307,308]) {
+                request=new URLRequest(baseUrl+"/post-redirect/"+code);request.method="POST";request.contentType="text/plain";request.data="redirect-body";request.requestHeaders=[new URLRequestHeader("X-Test","same-origin")];
+                send(request,code==307||code==308?"POST\n/inspect\ntext/plain\nsame-origin\n\nredirect-body":"GET\n/inspect\n\nsame-origin\n\n");
+            }
+            request=new URLRequest(baseUrl+"/cross-origin");request.method="POST";request.contentType="text/plain";request.data="cross-body";request.requestHeaders=[new URLRequestHeader("X-Test","private")];
+            send(request,"POST\n/inspect\ntext/plain\n\n\ncross-body");
+            request=new URLRequest(baseUrl+"/echo");request.method="POST";request.data=42;send(request,"42");
+            var preserved:URLLoader=new URLLoader();retained.push(preserved);preserved.addEventListener(Event.COMPLETE,function(event:Event):void {sent++;check(preserved.data=="ž🙂\u0000HTTP","invalid-load-preserves-pending");});preserved.addEventListener(IOErrorEvent.IO_ERROR,unexpected);preserved.load(new URLRequest(baseUrl+"/text"));
+            request=new URLRequest(baseUrl+"/missing");request.requestHeaders=[new URLRequestHeader("Host","invalid")];var caught:Boolean;try{preserved.load(request);}catch(invalid:ArgumentError){caught=true;}check(caught,"invalid-request-rejected-before-cancel");
+            requestValidation();
+        }
+        private function requestValidation():void {
+            var loader:URLLoader=new URLLoader();var request:URLRequest=new URLRequest(baseUrl+"/echo");request.data=new ByteArray();var caught:Boolean;
+            try{loader.load(request);}catch(binaryGet:ArgumentError){caught=true;}check(caught,"binary-get-rejected");
+            request.method="POST";request.data="body";
+            for each(var name:String in ["Host","Content_Length","accept-encoding","Authorization","X-Bad\r\nInjected"]) {
+                request.requestHeaders=[new URLRequestHeader(name,"value")];caught=false;try{loader.load(request);}catch(blocked:ArgumentError){caught=true;}check(caught,"restricted-header");
+            }
+            request.requestHeaders=[new URLRequestHeader("X-Test","bad\r\nInjected: yes")];caught=false;try{loader.load(request);}catch(injection:ArgumentError){caught=true;}check(caught,"header-injection");
+            request.requestHeaders=[{}];caught=false;try{loader.load(request);}catch(wrongType:ArgumentError){caught=true;}check(caught,"header-type");
+            request.requestHeaders=[new URLRequestHeader("X-Test",new Array(8194).join("a"))];caught=false;try{loader.load(request);}catch(headerSize:ArgumentError){caught=true;}check(caught,"header-size");
+            request.requestHeaders=[];for(var i:uint=0;i<65;i++)request.requestHeaders.push(new URLRequestHeader("X-Test","value"));caught=false;try{loader.load(request);}catch(headerCount:ArgumentError){caught=true;}check(caught,"header-count");
+            request.requestHeaders=[];request.contentType="text/plain\r\nInjected: yes";caught=false;try{loader.load(request);}catch(typeInjection:ArgumentError){caught=true;}check(caught,"content-type-injection");request.contentType="text/plain";
+            request.requestHeaders=[];var large:ByteArray=new ByteArray();large.length=33554433;request.data=large;caught=false;try{loader.load(request);}catch(oversize:RangeError){caught=true;}check(caught,"upload-limit");large.length=0;
+        }
         public function cancelProgress():void {
             active=new URLLoader();retained.push(active);active.addEventListener(Event.COMPLETE,unexpected);active.addEventListener(IOErrorEvent.IO_ERROR,unexpected);
             active.addEventListener(ProgressEvent.PROGRESS,function(event:ProgressEvent):void {if(event.bytesLoaded>0){active.close();cancelled++;}});
@@ -90,6 +149,12 @@ package {
         }
         public function pending():void {active=new URLLoader();retained.push(active);active.addEventListener(Event.COMPLETE,unexpected);active.addEventListener(IOErrorEvent.IO_ERROR,unexpected);active.load(new URLRequest(baseUrl+"/slowheaders"));}
         public function closePending():void {active.close();cancelled++;}
+        public function pendingUpload():void {
+            active=new URLLoader();retained.push(active);active.addEventListener(Event.COMPLETE,unexpected);active.addEventListener(IOErrorEvent.IO_ERROR,unexpected);
+            var request:URLRequest=new URLRequest(baseUrl+"/slowupload");request.method="POST";request.contentType="application/octet-stream";var bytes:ByteArray=new ByteArray();bytes.length=16777216;request.data=bytes;active.load(request);
+        }
+        public function closeUpload():void {active.close();}
+        public function tlsPost():void {var request:URLRequest=new URLRequest(baseUrl+"/inspect");request.method="POST";request.contentType="text/plain";request.data="ž🙂";request.requestHeaders=null;send(request,"POST\n/inspect\ntext/plain\n\n\nž🙂");}
         public function replacePending():void {active.addEventListener(Event.COMPLETE,function(event:Event):void {replaced++;});active.removeEventListener(Event.COMPLETE,unexpected);active.load(new URLRequest(baseUrl+"/text"));}
         public function tls():void {watch("tls","/text");}
         public function rejectTls():void {

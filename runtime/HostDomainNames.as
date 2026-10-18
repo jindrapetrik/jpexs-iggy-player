@@ -10,6 +10,9 @@ package com.jpexs.iggy.runtime {
             if (name == "com.jpexs.iggy.runtime::HostURLLoader") return "flash.net::URLLoader";
             if (name == "com.jpexs.iggy.runtime::HostURLLoaderDataFormat") return "flash.net::URLLoaderDataFormat";
             if (name == "com.jpexs.iggy.runtime::HostURLVariables") return "flash.net::URLVariables";
+            if (name == "com.jpexs.iggy.runtime::HostURLRequest") return "flash.net::URLRequest";
+            if (name == "com.jpexs.iggy.runtime::HostURLRequestMethod") return "flash.net::URLRequestMethod";
+            if (name == "com.jpexs.iggy.runtime::HostURLRequestHeader") return "flash.net::URLRequestHeader";
             if (name == "com.jpexs.iggy.runtime::HostHTTPStatusEvent") return "flash.events::HTTPStatusEvent";
             if (name == "com.jpexs.iggy.runtime::HostSecurityErrorEvent") return "flash.events::SecurityErrorEvent";
             var prefix:String = "com.jpexs.iggy.domain.d";

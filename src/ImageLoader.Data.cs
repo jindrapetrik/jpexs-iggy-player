@@ -10,11 +10,12 @@ namespace IggyViewer {
     internal unsafe sealed partial class ImageLoader {
         const int DataLimit=32*1024*1024;
         sealed class DataJob {
-            internal string Token,Url,BaseUrl,Error;
+            internal string Token,Url,BaseUrl,Error,Method,ContentType;
             internal MovieActivity.Scope Owner;
             internal int Loaded,Total,Reserved;
             internal bool Ready,Cancelled;
-            internal byte[] Bytes;
+            internal byte[] Bytes,Upload;
+            internal readonly List<KeyValuePair<string,string>> Headers=new List<KeyValuePair<string,string>>();
             internal HttpWebRequest Request;
             internal readonly Queue<string> Statuses=new Queue<string>();
         }
@@ -34,18 +35,22 @@ namespace IggyViewer {
         IntPtr DataContent(IntPtr context,AmfRequest request) {
             string operation=request.Operation,answer;
             if(operation=="data-base")return native.ReturnMovieString(context,DataBaseUrl());
-            string value=operation=="data-bytes"?request.Extra:native.AmfString(Marshal.ReadIntPtr(request.Value),65536);
             if(operation=="data-start") {
+                DataJob pending=ReadDataRequest(Marshal.ReadIntPtr(request.Value));
                 lock(sync) {
                     if(closed||native.Activity.Current!=null&&native.Activity.Current.Stopped)answer="error|The containing movie was closed";
                     else if(dataJobs.Count>=32)answer="error|Too many pending URLLoader requests";
                     else {
-                        DataJob job=new DataJob {Token=Guid.NewGuid().ToString("N"),Url=value,BaseUrl=request.Extra,Owner=native.Activity.Current};dataJobs.Add(job.Token,job);answer=job.Token;
+                        DataJob job=pending;job.Token=Guid.NewGuid().ToString("N");job.BaseUrl=request.Extra;job.Owner=native.Activity.Current;
+                        long reserved=job.Upload.Length;foreach(DataJob other in dataJobs.Values)reserved+=other.Reserved+(other.Upload==null?0:other.Upload.Length);
+                        if(reserved>128L*1024*1024)throw new InvalidDataException("Pending URLLoader data exceeds 128 MiB");
+                        dataJobs.Add(job.Token,job);answer=job.Token;
                         dataWaiting.Enqueue(job);StartDataReaders();
                     }
                 }
                 return native.ReturnMovieString(context,answer);
             }
+            string value=operation=="data-bytes"?request.Extra:native.AmfString(Marshal.ReadIntPtr(request.Value),65536);
             byte[] bytes=null;
             lock(sync) {
                 DataJob job;
@@ -84,6 +89,7 @@ namespace IggyViewer {
                 if(!Uri.TryCreate(job.Url,UriKind.Absolute,out uri))uri=new Uri(new Uri(job.BaseUrl),job.Url);
                 if(uri.Scheme=="http"||uri.Scheme=="https"){ReadHttpData(job,uri);return;}
                 if(!uri.IsFile||uri.IsUnc){FailData(job,"security|URLLoader supports local files and HTTP/HTTPS URLs");return;}
+                if(job.Method!="GET"||job.Headers.Count!=0){FailData(job,"error|HTTP method and headers cannot be used with a local file");return;}
                 int separator=job.Url.IndexOfAny(new char[]{'?','#'});
                 if(separator>=0){string location=job.Url.Substring(0,separator);if(!Uri.TryCreate(location,UriKind.Absolute,out uri))uri=new Uri(new Uri(job.BaseUrl),location);}
                 using(FileStream input=new FileStream(uri.LocalPath,FileMode.Open,FileAccess.Read,FileShare.Read)) {
@@ -95,7 +101,7 @@ namespace IggyViewer {
             lock(sync) {
                 if(closed||job.Cancelled)return false;
                 if(length>DataLimit)throw new IOException("URLLoader data exceeds 32 MiB");
-                long reserved=length;foreach(DataJob other in dataJobs.Values)if(other!=job)reserved+=other.Reserved;
+                long reserved=length+(job.Upload==null?0:job.Upload.Length);foreach(DataJob other in dataJobs.Values)if(other!=job)reserved+=other.Reserved+(other.Upload==null?0:other.Upload.Length);
                 if(reserved>128L*1024*1024)throw new IOException("Pending URLLoader data exceeds 128 MiB");
                 job.Reserved=length;return true;
             }
@@ -121,16 +127,31 @@ namespace IggyViewer {
             // The executable targets .NET 4; opt in to TLS 1.2 on newer Windows
             // without replacing the platform's certificate validation.
             ServicePointManager.SecurityProtocol|=(SecurityProtocolType)3072;
-            bool received=false,redirected=false;
+            bool received=false,redirected=false,forwardHeaders=true;
+            string method=job.Method,contentType=job.ContentType;byte[] upload=job.Upload;
+            foreach(KeyValuePair<string,string> header in job.Headers)if(string.Equals(header.Key,"Content-Type",StringComparison.OrdinalIgnoreCase))contentType=header.Value;
             try {
                 for(int hop=0;;hop++) {
                     received=false;redirected=hop!=0;
                     if((uri.Scheme!="http"&&uri.Scheme!="https")||uri.UserInfo.Length!=0){FailData(job,"security|Unsupported HTTP redirect or URL credentials");return;}
                     HttpWebRequest request=(HttpWebRequest)WebRequest.Create(uri);
-                    request.Method="GET";request.AllowAutoRedirect=false;request.Timeout=15000;request.ReadWriteTimeout=15000;
+                    request.Method=method;request.AllowAutoRedirect=false;request.Timeout=15000;request.ReadWriteTimeout=15000;
                     request.AutomaticDecompression=DecompressionMethods.GZip|DecompressionMethods.Deflate;
                     request.ServicePoint.ConnectionLimit=8;
+                    request.ServicePoint.Expect100Continue=false;
+                    if(forwardHeaders)foreach(KeyValuePair<string,string> header in job.Headers) {
+                        if(string.Equals(header.Key,"Content-Type",StringComparison.OrdinalIgnoreCase))continue;
+                        if(string.Equals(header.Key,"Accept",StringComparison.OrdinalIgnoreCase))request.Accept=string.IsNullOrEmpty(request.Accept)?header.Value:request.Accept+", "+header.Value;
+                        else request.Headers.Add(header.Key,header.Value);
+                    }
+                    if(method=="POST"){request.ContentLength=upload==null?0:upload.Length;request.AllowWriteStreamBuffering=false;if(contentType.Length!=0)request.ContentType=contentType;}
                     lock(sync){if(closed||job.Cancelled)return;job.Request=request;}
+                    if(method=="POST")using(Stream output=request.GetRequestStream()) {
+                        for(int offset=0;upload!=null&&offset<upload.Length;) {
+                            lock(sync)if(closed||job.Cancelled)return;
+                            int length=Math.Min(65536,upload.Length-offset);output.Write(upload,offset,length);offset+=length;
+                        }
+                    }
                     HttpWebResponse response;
                     try {response=(HttpWebResponse)request.GetResponse();}
                     catch(WebException error){response=error.Response as HttpWebResponse;if(response==null)throw;}
@@ -142,7 +163,9 @@ namespace IggyViewer {
                             if(hop>=8)throw new IOException("URLLoader exceeded eight HTTP redirects");
                             string location=response.Headers["Location"];
                             if(string.IsNullOrEmpty(location))throw new IOException("HTTP redirect has no Location header");
-                            uri=new Uri(uri,location);continue;
+                            Uri next=new Uri(uri,location);if(!SameDataOrigin(uri,next))forwardHeaders=false;
+                            if(code==303||((code==301||code==302)&&method=="POST")){method="GET";upload=null;lock(sync)job.Upload=null;}
+                            uri=next;continue;
                         }
                         if(code<200||code>=300)throw new IOException("HTTP "+code+" "+response.StatusDescription);
                         using(Stream input=response.GetResponseStream())ReadDataStream(job,input,response.ContentLength);
@@ -153,11 +176,11 @@ namespace IggyViewer {
                 WebException web=ex as WebException;
                 lock(sync)if(!closed&&!job.Cancelled&&!received)job.Statuses.Enqueue(redirected?"0|1":"0|0");
                 FailData(job,(web!=null&&(web.Status==WebExceptionStatus.TrustFailure||web.Status==WebExceptionStatus.SecureChannelFailure)?"security|":"error|")+ex.Message.Replace('|',' '));
-            } finally {lock(sync)job.Request=null;}
+            } finally {lock(sync){job.Request=null;job.Upload=null;}}
         }
-        void FailData(DataJob job,string error) {lock(sync)if(!closed&&!job.Cancelled){job.Bytes=null;job.Reserved=0;job.Error=error;}}
+        void FailData(DataJob job,string error) {lock(sync)if(!closed&&!job.Cancelled){job.Bytes=null;job.Upload=null;job.Reserved=0;job.Error=error;}}
         void CancelData(DataJob job) {
-            job.Cancelled=true;job.Bytes=null;job.Reserved=0;job.Statuses.Clear();dataJobs.Remove(job.Token);
+            job.Cancelled=true;job.Bytes=null;job.Upload=null;job.Reserved=0;job.Statuses.Clear();dataJobs.Remove(job.Token);
             for(int remaining=dataWaiting.Count;remaining>0;remaining--){DataJob waiting=dataWaiting.Dequeue();if(!waiting.Cancelled)dataWaiting.Enqueue(waiting);}
             HttpWebRequest request=job.Request;
             // Abort outside the VM's lock and thread, including requests waiting

@@ -270,7 +270,7 @@ without URLLoader references.
 The .swf/.iggy files named raw are data inputs, not movies to open in the player.
 
 http-loader.swf/http-loader.iggy and url-data/HttpMain.as exercise HTTP/HTTPS
-GET with a loopback-only server embedded in --self-test-http-loader. Coverage
+GET/POST with a loopback-only server embedded in --self-test-http-loader. Coverage
 includes UTF-8 text, binary and variables, escaped queries, status events/clones,
 redirects and loops, gzip, chunked/unknown lengths, HTTP and connection errors,
 truncated and oversized decoded responses, cancellation/replacement from event
@@ -278,6 +278,18 @@ handlers, child unload, socket shutdown and garbage collection. HTTPS rejects
 the untrusted fixture first; a scoped test-only callback then trusts that exact
 loopback certificate for the successful TLS 1.2 test. Production uses the system
 certificate checks. No system certificate store is changed.
+
+Request tests cover URLRequestMethod/URLRequestHeader defaults and reflection,
+GET query merging, UTF-8 strings, forms with repeated variables, binary POST
+from the entire ByteArray without changing its position, request snapshots,
+custom/duplicate headers, Content-Type overrides and an empty POST becoming GET.
+They verify method/body changes for 301/302/303, replay for 307/308, header
+removal when the origin changes, header injection/restrictions/size/type checks,
+upload limits, cancellation during a stalled 16 MiB upload and POST over TLS.
+url-data/request-only verifies activation without URLLoader references.
+The 128 MiB pending-data limit includes request bodies and response buffers;
+individual uploads and responses are limited to 32 MiB. GET/POST are supported;
+other HTTP methods remain unavailable.
 
 url-data/localhost.pfx is a public test key with password changeit. Regenerate
 it with a JDK keytool (this certificate is only for the local test server):

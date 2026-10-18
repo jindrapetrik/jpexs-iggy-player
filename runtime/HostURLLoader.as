@@ -36,9 +36,9 @@ package com.jpexs.iggy.runtime {
             if (request == null) throw new TypeError("URLLoader request is null");
             if (request.url == null || request.url.length == 0) throw new ArgumentError("URLLoader URL is empty");
             if (dataFormat != "text" && dataFormat != "binary" && dataFormat != "variables") throw new ArgumentError("Unsupported URLLoader data format");
-            if (request.method != "GET" || request.data != null || (request.requestHeaders != null && request.requestHeaders.length != 0)) throw new ArgumentError("URLLoader supports GET without a body or headers");
+            var packet:ByteArray = request.packet();
             cancel(); data = null; bytesLoaded = 0; bytesTotal = 0; opened = false; progress = -1;
-            token = String(new HostAmfRequest("data-start", request.url, baseUrl).result);
+            token = String(new HostAmfRequest("data-start", packet, baseUrl).result);
             timer = new Timer(10); timer.addEventListener(TimerEvent.TIMER, poll); timer.start();
         }
         private function poll(event:TimerEvent):void {
