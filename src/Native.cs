@@ -58,6 +58,7 @@ namespace IggyViewer {
         internal int LastAdvancedFrames;
         RuntimeScriptPlan runtimeScripts;
         SharedObjectStorage sharedObjectStorage;
+        bool movieOpened;
         ImageLoader imageLoader;
         CompilerLifetime compilerLifetime;
         internal MovieActivity Activity;
@@ -346,6 +347,7 @@ namespace IggyViewer {
             PatchDeferredDomainClasses();
             play(Player);
             if (valid(Player) == 0) throw new InvalidDataException("The movie failed during initialization; see the log.");
+            movieOpened=true;
             } catch {Close();throw;}
         }
         string ResolveImport(string from,string url) {
@@ -609,6 +611,8 @@ namespace IggyViewer {
         public void Wheel(int delta) { Send(p => mouseWheel(p, delta)); }
         public void MouseLeave() { mouseInside=false;Send(p => mouseLeave(p)); }
         public void Close() {
+            bool save=movieOpened;movieOpened=false;
+            if(save&&Player!=IntPtr.Zero&&sharedObjectStorage!=null)sharedObjectStorage.AutoSave();
             mouseInside=false;
             wallClock.Reset();
             stoppedBySeek=false;

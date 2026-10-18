@@ -151,9 +151,17 @@ flush(). Writes atomically replace the previous file; failed reads/writes preser
 it. Corrupt files raise catchable AS3 errors. clear() deletes the file and empties
 the same data object, preserving references held by scripts. AMF data is limited
 to 16 MiB per save. Large payloads use a direct host bridge to avoid the DLL's
-stack-based string conversion. Saving requires an explicit flush(); automatic
-saving on shutdown, remote SharedObjects, quotas and exact .sol size reporting
-are not implemented. Existing Flash .sol files are not imported.
+stack-based string conversion. Closing, replacing or disposing a successfully
+opened movie automatically saves changed local objects before dismantling the VM.
+Snapshots use AMF serialization, including custom writeExternal callbacks, so
+nested object and ByteArray edits are detected. An initial snapshot is taken on
+getLocal; explicit flush() and clear() update it. Unchanged objects (including
+legacy saves) are not rewritten, and clear() does not recreate an empty file on
+shutdown. Automatic saves retain each object's originating application domain;
+errors are logged per object without blocking other saves or normal teardown.
+Explicit flush() still reports failures synchronously. Abrupt process termination
+cannot trigger automatic saving. Remote SharedObjects, quotas and exact .sol size
+reporting are not implemented. Existing Flash .sol files are not imported.
 
 The Loader compatibility layer loads local PNG/JPEG images and 64-bit IGGY movies
 asynchronously. Absolute local paths and file: URLs are also
@@ -367,6 +375,7 @@ IggyPlayer.exe --self-test-cursor test-data/cursor.iggy output-directory
 IggyPlayer.exe --self-test-loaderinfo test-data/loaderinfo.iggy output-directory
 IggyPlayer.exe --self-test-runtime test-data/runtime.iggy output-directory
 IggyPlayer.exe --self-test-sharedobject test-data/sharedobject.iggy output-directory
+IggyPlayer.exe --self-test-sharedobject-autosave test-data/sharedobject-auto.iggy output-directory
 IggyPlayer.exe --self-test-loader test-data/loader.iggy output-directory
 IggyPlayer.exe --self-test-movie-loader test-data/movie-loader.iggy output-directory
 IggyPlayer.exe --self-test-domains test-data/domains.iggy output-directory

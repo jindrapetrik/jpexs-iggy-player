@@ -8,6 +8,7 @@ package flash.net {
         private var encoding:uint;
         private var values:Object = {};
         private var key:String;
+        private var snapshot:String;
         public function SharedObject() { super(); encoding = defaultEncoding; }
         public function get data():Object { return values; }
         public static function get defaultObjectEncoding():uint { return defaultEncoding; }
@@ -24,18 +25,39 @@ package flash.net {
                 if (saved === false) throw new Error("SharedObject read failed");
                 if (saved != null) object.values = HostCodec.decode(String(saved));
                 objects[key] = object;
+                var ready:Boolean = false;
+                try {
+                    // A custom serializer may getLocal() this same object.
+                    object.snapshot = HostCodec.encode(object.values, object.encoding);
+                    new HostSharedObjectRequest("store-track", object, key).result;
+                    ready = true;
+                } finally { if (!ready) delete objects[key]; }
             }
             return objects[key];
         }
         public function flush(minDiskSpace:int = 0):String {
-            if (!new HostSharedObjectRequest("store-write", key, HostCodec.encode(values, encoding)).result) throw new Error("SharedObject write failed");
+            var payload:String = HostCodec.encode(values, encoding);
+            if (!new HostSharedObjectRequest("store-write", key, payload).result) throw new Error("SharedObject write failed");
+            snapshot = payload;
             return "flushed";
+        }
+        // Called by the host while the VM, aliases and storage bridge are alive.
+        // Comparing serialized graphs also detects nested and binary mutations.
+        public function __iggyAutoSave():void {
+            try {
+                var payload:String = HostCodec.encode(values, encoding);
+                if (payload != snapshot) {
+                    if (!new HostSharedObjectRequest("store-write", key, payload).result) throw new Error("SharedObject write failed");
+                    snapshot = payload;
+                }
+            } catch (error:*) { new HostSharedObjectRequest("store-error", key).result; }
         }
         public function clear():void {
             if (!new HostSharedObjectRequest("store-clear", key).result) throw new Error("SharedObject clear failed");
             var names:Array = []; var name:String;
             for (name in values) names.push(name);
             for each (name in names) delete values[name];
+            snapshot = HostCodec.encode(values, encoding);
         }
         public function close():void {}
         public function setProperty(name:String, value:* = null):void { data[name] = value; }

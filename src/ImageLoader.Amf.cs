@@ -25,7 +25,7 @@ namespace IggyViewer {
             string operation=ReadText(Marshal.ReadIntPtr(arguments,16))??"";
             amfRequests.Add(new AmfRequest {Request=reference(native.Player,info,1),Operation=operation,
                 Value=operation=="utf"||operation=="weak"||operation=="vector-type"||operation=="vector-class"||operation=="xml-document"||operation=="base64-encode"||operation=="base64-decode"||operation.StartsWith("store-",StringComparison.Ordinal)?reference(native.Player,Marshal.ReadIntPtr(arguments,24),0):IntPtr.Zero,
-                Payload=operation=="base64-decode"||operation=="store-write"?reference(native.Player,Marshal.ReadIntPtr(arguments,32),0):IntPtr.Zero,
+                Payload=operation=="base64-decode"||operation=="store-write"||operation=="store-track"?reference(native.Player,Marshal.ReadIntPtr(arguments,32),0):IntPtr.Zero,
                 Text=operation=="schema"?ReadText(Marshal.ReadIntPtr(arguments,24)):null,Extra=ReadText(Marshal.ReadIntPtr(arguments,32))});
         }
         bool AmfContent(IntPtr context,IntPtr receiver,out IntPtr result) {
@@ -39,6 +39,10 @@ namespace IggyViewer {
                     }
                     if(request.Operation.StartsWith("store-",StringComparison.Ordinal)) {
                         if(Storage==null)throw new InvalidDataException("SharedObject storage is unavailable.");
+                        if(request.Operation=="store-track") {
+                            Storage.Track(Marshal.ReadIntPtr(request.Value),native.AmfString(Marshal.ReadIntPtr(request.Payload),2048));
+                            Marshal.WriteIntPtr(Marshal.ReadIntPtr(context,8),native.AmfBoolean(true));return true;
+                        }
                         object answer=Storage.Execute(request.Operation.Substring(6),native.AmfString(Marshal.ReadIntPtr(request.Value),2048),request.Payload==IntPtr.Zero?null:native.AmfString(Marshal.ReadIntPtr(request.Payload),24*1024*1024));
                         if(answer is string)result=native.ReturnMovieString(context,(string)answer);
                         else Marshal.WriteIntPtr(Marshal.ReadIntPtr(context,8),answer==null?nullValue:native.AmfBoolean((bool)answer));

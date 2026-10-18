@@ -12,5 +12,11 @@ public class CreateSharedObjectFixture {
         CreateBytesLoaderFixture.compile(only, null, Files.readString(output.resolveSibling("sharedobject/SharedOnly.as")));
         SymbolClassTag onlySymbols = new SymbolClassTag(only); onlySymbols.tags.add(0); onlySymbols.names.add("SharedOnly");
         CreateBytesLoaderFixture.write(only, output.resolveSibling("sharedobject/only"), onlySymbols);
+        for (String main : new String[]{"AutoSaveMain", "AutoSaveChild"}) {
+            SWF auto = CreateBytesLoaderFixture.movie();
+            for (String name : new String[]{"SavedRecord", "SavedExternal", "AutoSavedExternal", main}) CreateBytesLoaderFixture.compile(auto, null, Files.readString(output.resolveSibling("sharedobject/" + name + ".as")));
+            SymbolClassTag autoSymbols = new SymbolClassTag(auto); autoSymbols.tags.add(0); autoSymbols.names.add(main);
+            CreateBytesLoaderFixture.write(auto, output.resolveSibling(main.equals("AutoSaveMain") ? "sharedobject-auto" : "sharedobject/auto-child"), autoSymbols);
+        }
     }
 }

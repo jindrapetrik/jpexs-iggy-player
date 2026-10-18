@@ -52,6 +52,7 @@ namespace IggyViewer {
                 if(args.Length>=3&&args[0]=="--self-test-loaderinfo") {SelfTest.RunLoaderInfo(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-runtime") {SelfTest.RunRuntime(dll,args[1],args[2],log);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-sharedobject") {SelfTest.RunSharedObject(dll,args[1],args[2],log,renderer);return 0;}
+                if(args.Length>=3&&args[0]=="--self-test-sharedobject-autosave") {SelfTest.RunSharedObjectAutoSave(dll,args[1],args[2],log,renderer);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-loader") {SelfTest.RunLoader(dll,args[1],args[2],log,renderer);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-loader-bytes") {SelfTest.RunLoaderBytes(dll,args[1],args[2],log,renderer);return 0;}
                 if(args.Length>=3&&args[0]=="--self-test-bytearray") {SelfTest.RunByteArray(dll,args[1],args[2],log,renderer);return 0;}

@@ -233,6 +233,15 @@ It reopens movies across native VM shutdown, forces moving GC, checks movie-path
 isolation and releases byte storage. sharedobject/only.iggy references SharedObject
 without Loader or ByteArray to test automatic activation of the AMF runtime.
 
+sharedobject-auto.swf/sharedobject-auto.iggy and sharedobject/auto-child exercise
+automatic saving on close, replacement (including a failed next open), disposal
+and native VM shutdown. They check nested and binary mutations without flush,
+AMF0, cyclic typed/externalizable graphs, reentrant getLocal from writeExternal,
+isolated/stopped loaded movies, unchanged legacy files, clear through held data
+references, temporary files and continuation after serialization or disk errors.
+Run --self-test-sharedobject-autosave with test-data/sharedobject-auto.iggy and
+test-output/sharedobject-autosave as its two arguments, or use test.ps1.
+
 The AS3 sources are in sharedobject/. Regenerate with a compatible FFDec library:
 
 ~~~powershell
