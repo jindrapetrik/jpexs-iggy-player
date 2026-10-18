@@ -35,6 +35,7 @@ Invoke-PlayerTest @('--renderer', 'software', '--self-test-loader', (Join-Path $
 Invoke-PlayerTest @('--renderer', 'software', '--self-test-loader-bytes', (Join-Path $PSScriptRoot 'test-data/bytes-loader.iggy'), (Join-Path $output 'bytes-loader')) 'bytes-loader.log'
 Invoke-PlayerTest @('--renderer', 'software', '--self-test-bytearray', (Join-Path $PSScriptRoot 'test-data/bytearray.iggy'), (Join-Path $output 'bytearray')) 'bytearray.log'
 Invoke-PlayerTest @('--renderer', 'software', '--self-test-amf', (Join-Path $PSScriptRoot 'test-data/amf.iggy'), (Join-Path $output 'amf')) 'amf.log'
+Invoke-PlayerTest @('--renderer', 'software', '--self-test-sharedobject', (Join-Path $PSScriptRoot 'test-data/sharedobject.iggy'), (Join-Path $output 'sharedobject')) 'sharedobject.log'
 Invoke-PlayerTest @('--renderer', 'software', '--self-test-movie-loader', (Join-Path $PSScriptRoot 'test-data/movie-loader.iggy'), (Join-Path $output 'movie-loader')) 'movie-loader.log'
 Invoke-PlayerTest @('--self-test-domains', (Join-Path $PSScriptRoot 'test-data/domains.iggy'), (Join-Path $output 'domains')) 'domains.log'
 Invoke-PlayerTest @('--renderer', 'software', '--self-test-unload', (Join-Path $PSScriptRoot 'test-data/movie-loader.iggy'), (Join-Path $output 'unload')) 'unload.log'
@@ -45,6 +46,7 @@ if ($TestOpenGl) {
     Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-loader-bytes', (Join-Path $PSScriptRoot 'test-data/bytes-loader.iggy'), (Join-Path $output 'bytes-loader-opengl')) 'bytes-loader-opengl.log'
     Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-bytearray', (Join-Path $PSScriptRoot 'test-data/bytearray.iggy'), (Join-Path $output 'bytearray-opengl')) 'bytearray-opengl.log'
     Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-amf', (Join-Path $PSScriptRoot 'test-data/amf.iggy'), (Join-Path $output 'amf-opengl')) 'amf-opengl.log'
+    Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-sharedobject', (Join-Path $PSScriptRoot 'test-data/sharedobject.iggy'), (Join-Path $output 'sharedobject-opengl')) 'sharedobject-opengl.log'
     Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-movie-loader', (Join-Path $PSScriptRoot 'test-data/movie-loader.iggy'), (Join-Path $output 'movie-loader-opengl')) 'movie-loader-opengl.log'
     Invoke-PlayerTest @('--renderer', 'opengl', '--self-test-unload', (Join-Path $PSScriptRoot 'test-data/movie-loader.iggy'), (Join-Path $output 'unload-opengl')) 'unload-opengl.log'
 }

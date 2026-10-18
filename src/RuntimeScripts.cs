@@ -253,6 +253,7 @@ namespace IggyViewer {
             loader|=references.Contains("flash.net::ObjectEncoding")||references.Contains("flash.net::registerClassAlias")||references.Contains("flash.net::getClassByAlias");
             loader|=references.Contains("__AS3__.vec::Vector")||references.Contains("flash.utils::IExternalizable")||references.Contains("flash.utils::IDataInput")||references.Contains("flash.utils::IDataOutput");
             loader|=references.Contains("::XML")||references.Contains("flash.xml::XMLDocument");
+            loader|=shared;
             foreach(string timer in new string[]{"setInterval","setTimeout","clearInterval","clearTimeout"})if(references.Contains("flash.utils::"+timer)&&!definitions.Contains("flash.utils::"+timer))timers=true;
             shared|=loader&&!definitions.Contains("flash.net::SharedObject");
             fileList=references.Contains("flash.net::FileReferenceList")&&!definitions.Contains("flash.net::FileReferenceList");
@@ -260,7 +261,7 @@ namespace IggyViewer {
             if((audio||loader)&&references.Contains("::__IggyHostSoundEvents"))throw new InvalidDataException("Movie conflicts with the host sound completion class.");
             if(definitions.Contains("com.jpexs.iggy.runtime::HostLoader")||definitions.Contains("com.jpexs.iggy.runtime::HostURLRequest")||definitions.Contains("com.jpexs.iggy.runtime::HostLoaderInfo")||definitions.Contains("com.jpexs.iggy.runtime::HostIOErrorEvent")||definitions.Contains("com.jpexs.iggy.runtime::HostFileReferenceList")||definitions.Contains("com.jpexs.iggy.runtime::HostLoadedBitmap")||definitions.Contains("com.jpexs.iggy.runtime::HostProgressEvent")||definitions.Contains("com.jpexs.iggy.runtime::HostMovieRequest"))
                 throw new InvalidDataException("Movie conflicts with the Iggy runtime compatibility namespace.");
-            if(shared&&definitions.Contains("com.jpexs.iggy.runtime::HostCodec"))throw new InvalidDataException("Movie conflicts with the SharedObject codec namespace.");
+            if(shared&&(definitions.Contains("com.jpexs.iggy.runtime::HostCodec")||definitions.Contains("com.jpexs.iggy.runtime::HostSharedObjectRequest")))throw new InvalidDataException("Movie conflicts with the SharedObject codec namespace.");
             if(definitions.Contains("com.jpexs.iggy.runtime::HostTimers")||definitions.Contains("com.jpexs.iggy.runtime::HostTimerTask"))throw new InvalidDataException("Movie conflicts with the host timer namespace.");
             foreach(string name in new string[]{"flash.utils::Endian","flash.utils::CompressionAlgorithm","com.jpexs.iggy.runtime::HostEndian","com.jpexs.iggy.runtime::HostCompressionAlgorithm"})
                 if(definitions.Contains(name))throw new InvalidDataException("Movie conflicts with the host ByteArray namespace.");

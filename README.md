@@ -140,9 +140,22 @@ Embedded fonts take precedence over Windows Times New Roman, Arial and
 Courier New and their generic aliases. Bitmap font caching is disabled;
 the DLL produces vector glyphs.
 
-SharedObject.getLocal uses a private persistent format under sharedobjects,
-separated by movie path. Existing Flash .sol files are not imported. The
-Loader compatibility layer loads local PNG/JPEG images and 64-bit IGGY movies
+SharedObject.getLocal uses a private, versioned AMF format under sharedobjects,
+separated by movie path. It persists object graphs, cycles, shared references,
+ByteArrays and the other types supported by readObject/writeObject below.
+SharedObject.objectEncoding and its independent static defaultObjectEncoding
+accept 0 or 3, defaulting to AMF3; the default is captured by each new instance.
+Register class aliases before getLocal to restore typed/externalizable values.
+Existing IGGY1 text saves remain readable and migrate only after a successful
+flush(). Writes atomically replace the previous file; failed reads/writes preserve
+it. Corrupt files raise catchable AS3 errors. clear() deletes the file and empties
+the same data object, preserving references held by scripts. AMF data is limited
+to 16 MiB per save. Large payloads use a direct host bridge to avoid the DLL's
+stack-based string conversion. Saving requires an explicit flush(); automatic
+saving on shutdown, remote SharedObjects, quotas and exact .sol size reporting
+are not implemented. Existing Flash .sol files are not imported.
+
+The Loader compatibility layer loads local PNG/JPEG images and 64-bit IGGY movies
 asynchronously. Absolute local paths and file: URLs are also
 accepted, including escaped Unicode names and URL queries. Loaded content is
 a Bitmap or MovieClip child with LoaderInfo dimensions, MIME type, URL and byte counts.
@@ -353,6 +366,7 @@ IggyPlayer.exe --self-test-keyboard test-data/keyboard.iggy output-directory
 IggyPlayer.exe --self-test-cursor test-data/cursor.iggy output-directory
 IggyPlayer.exe --self-test-loaderinfo test-data/loaderinfo.iggy output-directory
 IggyPlayer.exe --self-test-runtime test-data/runtime.iggy output-directory
+IggyPlayer.exe --self-test-sharedobject test-data/sharedobject.iggy output-directory
 IggyPlayer.exe --self-test-loader test-data/loader.iggy output-directory
 IggyPlayer.exe --self-test-movie-loader test-data/movie-loader.iggy output-directory
 IggyPlayer.exe --self-test-domains test-data/domains.iggy output-directory

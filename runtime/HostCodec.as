@@ -1,53 +1,31 @@
 package com.jpexs.iggy.runtime {
     import flash.utils.getQualifiedClassName;
-    // Versioned, length-prefixed values. No eval and no executable save data.
+    import flash.utils.ByteArray;
+    // Versioned AMF storage, with read-only compatibility for the old text format.
     public class HostCodec {
         private var source:String;
         private var cursor:int;
         private var values:int;
-        public static function encode(value:*):String {
-            return "IGGY1:" + pack(value, [], 0);
+        private static function root(value:*):Object {
+            if (value == null || getQualifiedClassName(value) != "Object") throw new Error("Invalid SharedObject root");
+            return value;
         }
-        private static function pack(value:*, parents:Array, depth:int):String {
-            if (depth > 64) throw new Error("SharedObject nesting limit exceeded");
-            if (value === undefined) return "U";
-            if (value === null) return "N";
-            if (typeof value == "boolean") return value ? "T" : "F";
-            if (typeof value == "number") {
-                var number:String = String(value);
-                return "D" + number.length + ":" + number;
-            }
-            if (typeof value == "string") return "S" + value.length + ":" + value;
-            for (var p:int = 0; p < parents.length; p++) {
-                if (parents[p] === value) throw new Error("Cyclic SharedObject data is unsupported");
-            }
-            if (typeof value != "object") throw new Error("Unsupported SharedObject value");
-            parents.push(value);
-            var body:String = "";
-            var key:String;
-            var count:int = 0;
-            if (value is Array) {
-                if (value.length > 100000) throw new Error("SharedObject array limit exceeded");
-                for (key in value) {
-                    var index:uint = uint(key);
-                    if (String(index) != key || index >= value.length) throw new Error("Associative arrays are unsupported in SharedObject data");
-                }
-                for (var i:int = 0; i < value.length; i++) body += pack(value[i], parents, depth + 1);
-                body = "A" + value.length + ":" + body;
-            } else {
-                if (getQualifiedClassName(value) != "Object") throw new Error("Only plain objects are supported in SharedObject data");
-                for (key in value) {
-                    if (++count > 100000) throw new Error("SharedObject object limit exceeded");
-                    body += pack(key, parents, depth + 1) + pack(value[key], parents, depth + 1);
-                }
-                body = "O" + count + ":" + body;
-            }
-            parents.pop();
-            if (body.length > 2000000) throw new Error("SharedObject size limit exceeded");
-            return body;
+        public static function encode(value:*, encoding:uint = 3):String {
+            if (encoding != 0 && encoding != 3) throw new ArgumentError("Invalid SharedObject objectEncoding");
+            var bytes:ByteArray = new ByteArray(); bytes.objectEncoding = encoding; bytes.writeObject(root(value));
+            return new HostSharedObjectRequest("base64-encode", bytes, String(encoding)).result;
         }
         public static function decode(text:String):Object {
+            if (text.substr(0, 6) == "IGGY2:") {
+                if ((text.charAt(6) != "0" && text.charAt(6) != "3") || text.charAt(7) != ":") throw new Error("Invalid SharedObject encoding header");
+                var bytes:ByteArray = new ByteArray(); bytes.objectEncoding = uint(text.charAt(6));
+                new HostSharedObjectRequest("base64-decode", bytes, text).result;
+                var value:* = bytes.readObject();
+                if (bytes.bytesAvailable != 0) throw new Error("Trailing SharedObject data");
+                return root(value);
+            }
             if (text.substr(0, 6) != "IGGY1:") throw new Error("Invalid SharedObject data version");
+            if (text.length > 2 * 1024 * 1024) throw new Error("Legacy SharedObject exceeds the size limit");
             var reader:HostCodec = new HostCodec();
             reader.source = text;
             reader.cursor = 6;

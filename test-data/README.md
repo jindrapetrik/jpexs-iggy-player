@@ -221,6 +221,29 @@ java -cp $classpath CreateAmfFixture test-data/amf
 Run --self-test-amf test-data/amf.iggy test-output/amf, or use test.ps1.
 The regression suite also runs it with OpenGL when -TestOpenGl is selected.
 
+## SharedObject AMF storage
+
+sharedobject.swf/sharedobject.iggy exercise AMF0/AMF3 local persistence:
+cycles and shared references, Unicode including NUL and supplementary characters,
+typed aliases, IExternalizable callbacks, ByteArrays, dates, vectors, dictionaries
+and associative arrays. The host test seeds legacy IGGY1 files, verifies migration
+on flush, rejects malformed saves without replacing them, retries a repaired save,
+and checks failed serialization, clear() reference identity and 2 MiB binary data.
+It reopens movies across native VM shutdown, forces moving GC, checks movie-path
+isolation and releases byte storage. sharedobject/only.iggy references SharedObject
+without Loader or ByteArray to test automatic activation of the AMF runtime.
+
+The AS3 sources are in sharedobject/. Regenerate with a compatible FFDec library:
+
+~~~powershell
+$classpath = 'tools;PATH_TO_FFDEC_JAR;PATH_TO_FFDEC_LIB/*'
+javac -encoding UTF-8 -cp $classpath tools/CreateBytesLoaderFixture.java tools/CreateSharedObjectFixture.java
+java -cp $classpath CreateSharedObjectFixture test-data/sharedobject
+~~~
+
+Run --self-test-sharedobject test-data/sharedobject.iggy test-output/sharedobject,
+or use test.ps1, which also selects OpenGL when -TestOpenGl is supplied.
+
 ## Filters
 
 The filters.swf and filters.iggy fixtures exercise translucent color

@@ -27,15 +27,16 @@ namespace IggyViewer {
             IntPtr vm=Marshal.ReadIntPtr(Player,modernDll?10560:10480),key=MovieName(vm,"::"+name,true);
             return MovieFunction<MovieProperty>(0xaf4d0,0xb6b90)(vm,Marshal.ReadIntPtr(metadata,48),key);
         }
-        internal string AmfString(IntPtr value) {
+        internal IntPtr AmfBoolean(bool value) {return Marshal.ReadIntPtr(module,(modernDll?0x110a90:0x101d00)+(value?8:0));}
+        internal string AmfString(IntPtr value,int maximum=16*1024*1024) {
             long atom=value.ToInt64();if((atom&1)==0)return (atom>>1).ToString(CultureInfo.InvariantCulture);
             if(value==IntPtr.Add(module,modernDll?0x103979:0xf3959)||value==IntPtr.Add(module,modernDll?0x103981:0xf3961))return "";
-            if(value==IntPtr.Add(module,modernDll?0x103971:0xf3951))return "true";
-            if(value==IntPtr.Add(module,modernDll?0x103969:0xf3949))return "false";
+            if(value==AmfBoolean(true))return "true";
+            if(value==AmfBoolean(false))return "false";
             if(atom>65536&&(atom&3)==1) {
                 int kind=Marshal.ReadByte(IntPtr.Subtract(value,1));
                 if(kind==7)return (*(double*)IntPtr.Add(value,7)).ToString("R",CultureInfo.InvariantCulture);
-                if(kind==8) {IntPtr text=Marshal.ReadIntPtr(value,7);int length=Marshal.ReadInt32(text,7);if(length<0||length>16*1024*1024)throw new InvalidDataException("XML text exceeds 16 MiB.");return Marshal.PtrToStringUni(IntPtr.Add(text,11),length);}
+                if(kind==8) {IntPtr text=Marshal.ReadIntPtr(value,7);int length=Marshal.ReadInt32(text,7);if(length<0||length>maximum)throw new InvalidDataException("Text exceeds the size limit.");return Marshal.PtrToStringUni(IntPtr.Add(text,11),length);}
             }
             throw new InvalidDataException("Expected XML text.");
         }
@@ -72,6 +73,10 @@ namespace IggyViewer {
             KeepMovieClass(specialized);return Marshal.ReadIntPtr(specialized,48);
         }
         internal string ReadAmfText(IntPtr value,uint length) {return ReadByteArrayText(value,length,Encoding.UTF8,false);}
+        internal void SetSharedObjectBytes(IntPtr value,byte[] bytes) {
+            if(!IsByteArray(value)||bytes.Length>16*1024*1024)throw new InvalidDataException("SharedObject AMF data exceeds 16 MiB.");
+            ResizeByteArray(value,bytes.Length);if(bytes.Length!=0)Marshal.Copy(bytes,0,ByteArrayData(value),bytes.Length);Marshal.WriteInt32(value,59,0);
+        }
         void InstallByteArrayConstructor() {
             ByteArrayCall original=(ByteArrayCall)Marshal.GetDelegateForFunctionPointer(Marshal.ReadIntPtr(byteArrayMetadata,56),typeof(ByteArrayCall));
             byteArrayDefaultEncoding=3;

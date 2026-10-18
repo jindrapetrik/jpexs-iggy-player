@@ -6,6 +6,7 @@ using System.Text;
 
 namespace IggyViewer {
     internal sealed class SharedObjectStorage {
+        const int PayloadLimit=24*1024*1024;
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int ExternalCall(IntPtr user,IntPtr player,IntPtr call);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int SetString(IntPtr path,IntPtr fastName,IntPtr name,IntPtr text,int length);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] delegate int SetBoolean(IntPtr path,IntPtr fastName,IntPtr name,int value);
@@ -21,7 +22,7 @@ namespace IggyViewer {
         static string Hash(string text) {using(SHA256 sha=SHA256.Create())return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(text))).Replace("-","").Substring(0,32);}
         internal SharedObjectStorage(Native native,string directory,Log log,ImageLoader images=null) {
             this.native=native;this.log=log;
-            this.images=images;
+            this.images=images;if(images!=null)images.Storage=this;
             folder=Path.Combine(directory,Hash(Path.GetFullPath(native.FileName).ToUpperInvariant()));
             // The old DLL emits CESU-8 for surrogate pairs in its UTF-8 bridge.
             // The UTF-16 bridge preserves AS3 strings in both supplied builds.
@@ -30,11 +31,11 @@ namespace IggyViewer {
             setString=native.Bind<SetString>("IggyValueSetStringUTF16RS");setBoolean=native.Bind<SetBoolean>("IggyValueSetBooleanRS");
             callback=Call;install(Marshal.GetFunctionPointerForDelegate(callback),IntPtr.Zero);
         }
-        static string Argument(IntPtr call,int index) {
+        static string Argument(IntPtr call,int index,int maximum=2*1024*1024) {
             int count=Marshal.ReadInt32(call,16);if(index<0||index>=count)throw new InvalidDataException("Missing SharedObject argument.");
             IntPtr value=IntPtr.Add(call,24+32*index);
             if(Marshal.ReadInt32(value)!=6)throw new InvalidDataException("SharedObject argument must be a string.");
-            int length=Marshal.ReadInt32(value,24);if(length<0||length>2*1024*1024)throw new InvalidDataException("SharedObject argument is too large.");
+            int length=Marshal.ReadInt32(value,24);if(length<0||length>maximum)throw new InvalidDataException("SharedObject argument is too large.");
             return Marshal.PtrToStringUni(Marshal.ReadIntPtr(value,16),length);
         }
         int Call(IntPtr user,IntPtr player,IntPtr call) {
@@ -51,33 +52,44 @@ namespace IggyViewer {
                 if(name!="__iggy_shared_read"&&name!="__iggy_shared_write"&&name!="__iggy_shared_clear") {
                     log.Write("ExternalInterface function unavailable in standalone player: "+name);return 1;
                 }
-                string key=Argument(call,0);if(key.Length==0||key.Length>2048)throw new InvalidDataException("Invalid SharedObject key.");
-                string file=Path.Combine(folder,Hash(key)+".dat");
-                if(name=="__iggy_shared_read") {
-                    if(!File.Exists(file))return 1; // default result is null
-                    if(new FileInfo(file).Length>8*1024*1024)throw new InvalidDataException("SharedObject file is too large.");
-                    string text=File.ReadAllText(file,new UTF8Encoding(false,true));
-                    IntPtr buffer=Marshal.StringToHGlobalUni(text);
+                object answer=Execute(name.Substring("__iggy_shared_".Length),Argument(call,0),name=="__iggy_shared_write"?Argument(call,1,PayloadLimit):null);
+                if(answer is string) {
+                    string text=(string)answer;IntPtr buffer=Marshal.StringToHGlobalUni(text);
                     try {if(setString(resultPath(player),IntPtr.Zero,IntPtr.Zero,buffer,text.Length)==0)throw new InvalidOperationException("Cannot return SharedObject data.");}
                     finally {Marshal.FreeHGlobal(buffer);}
-                } else {
-                    if(name=="__iggy_shared_write") {
-                        string payload=Argument(call,1);if(!payload.StartsWith("IGGY1:",StringComparison.Ordinal))throw new InvalidDataException("Invalid SharedObject payload.");
-                        Directory.CreateDirectory(folder);string temporary=file+"."+Guid.NewGuid().ToString("N").Substring(0,12)+".tmp";
-                        try {
-                            File.WriteAllText(temporary,payload,new UTF8Encoding(false,true));
-                            if(File.Exists(file))File.Replace(temporary,file,null);else File.Move(temporary,file);
-                        } finally {if(File.Exists(temporary))File.Delete(temporary);}
-                    } else if(File.Exists(file))File.Delete(file);
-                    setBoolean(resultPath(player),IntPtr.Zero,IntPtr.Zero,1);
-                }
+                } else if(answer is bool)setBoolean(resultPath(player),IntPtr.Zero,IntPtr.Zero,(bool)answer?1:0);
             } catch(Exception ex) {
                 log.Write("SharedObject host operation failed: "+ex.Message);
-                // False makes flush/clear throw an ordinary, catchable AS3 Error.
-                if(name!="__iggy_shared_read")setBoolean(resultPath(player),IntPtr.Zero,IntPtr.Zero,0);
+                // Distinguish read failures from missing files. A failed read
+                // must not become empty data that a later flush overwrites.
+                setBoolean(resultPath(player),IntPtr.Zero,IntPtr.Zero,0);
             }
             return 1;
         }
-        internal void Detach() {install(IntPtr.Zero,IntPtr.Zero);GC.KeepAlive(callback);}
+        // The LoaderInfo request bridge keeps large payloads off the DLL's
+        // ExternalInterface stack, which copies entire string arguments there.
+        internal object Execute(string operation,string key,string payload) {
+            try {
+                if(key.Length==0||key.Length>2048)throw new InvalidDataException("Invalid SharedObject key.");
+                string file=Path.Combine(folder,Hash(key)+".dat");
+                if(operation=="read") {
+                    if(!File.Exists(file))return null;
+                    if(new FileInfo(file).Length>PayloadLimit)throw new InvalidDataException("SharedObject file is too large.");
+                    return File.ReadAllText(file,new UTF8Encoding(false,true));
+                }
+                if(operation=="write") {
+                    if(payload==null||(!payload.StartsWith("IGGY2:0:",StringComparison.Ordinal)&&!payload.StartsWith("IGGY2:3:",StringComparison.Ordinal)))throw new InvalidDataException("Invalid SharedObject payload.");
+                    if(payload.Length>22369632||Convert.FromBase64String(payload.Substring(8)).Length>16*1024*1024)throw new InvalidDataException("SharedObject AMF data exceeds 16 MiB.");
+                    Directory.CreateDirectory(folder);string temporary=file+"."+Guid.NewGuid().ToString("N").Substring(0,12)+".tmp";
+                    try {
+                        File.WriteAllText(temporary,payload,new UTF8Encoding(false,true));
+                        if(File.Exists(file))File.Replace(temporary,file,null);else File.Move(temporary,file);
+                    } finally {if(File.Exists(temporary))File.Delete(temporary);}
+                } else if(operation=="clear") {if(File.Exists(file))File.Delete(file);}
+                else throw new InvalidDataException("Unknown SharedObject operation.");
+                return true;
+            } catch(Exception ex) {log.Write("SharedObject host operation failed: "+ex.Message);return false;}
+        }
+        internal void Detach() {install(IntPtr.Zero,IntPtr.Zero);if(images!=null)images.Storage=null;GC.KeepAlive(callback);}
     }
 }
