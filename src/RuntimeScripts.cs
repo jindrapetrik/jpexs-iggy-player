@@ -257,6 +257,7 @@ namespace IggyViewer {
             loader|=references.Contains("::applicationDomain");
             loader|=references.Contains("flash.utils::getDefinitionByName");
             loader|=references.Contains("flash.utils::ByteArray");
+            loader|=references.Contains("flash.display::BitmapData");
             loader|=references.Contains("flash.utils::Endian")||references.Contains("flash.utils::CompressionAlgorithm");
             loader|=references.Contains("flash.net::ObjectEncoding")||references.Contains("flash.net::registerClassAlias")||references.Contains("flash.net::getClassByAlias");
             loader|=references.Contains("__AS3__.vec::Vector")||references.Contains("flash.utils::IExternalizable")||references.Contains("flash.utils::IDataInput")||references.Contains("flash.utils::IDataOutput");

@@ -353,6 +353,24 @@ javac -encoding UTF-8 -cp $classpath tools/CreateBytesLoaderFixture.java tools/C
 java -cp $classpath CreateNetworkDependenciesFixture test-data/network-dependencies
 ~~~
 
+## BitmapData pixel editing
+
+bitmap-data.swf/bitmap-data.iggy check getPixel/getPixel32, setPixel/setPixel32,
+fillRect, rect, clone and dispose on ordinary, embedded and loaded bitmap data.
+Tests cover premultiplied alpha, opaque images, clipping, independent copies,
+argument conversion (including disposal during conversion), native GC and
+visible texture changes after the first render on software and OpenGL.
+The player limits bitmap dimensions to 3840 and owned pixel storage to 128 MiB.
+
+Run --self-test-bitmap-data test-data/bitmap-data.iggy test-output/bitmap-data,
+or use test.ps1 with optional -TestOpenGl. Regenerate with:
+
+~~~powershell
+$classpath = 'tools;PATH_TO_FFDEC_JAR;PATH_TO_FFDEC_LIB/*'
+javac -encoding UTF-8 -cp $classpath tools/CreateBytesLoaderFixture.java tools/CreateBitmapDataFixture.java
+java -cp $classpath CreateBitmapDataFixture test-data/bitmap-data
+~~~
+
 ## Filters
 
 The filters.swf and filters.iggy fixtures exercise translucent color

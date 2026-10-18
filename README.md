@@ -37,6 +37,8 @@ including static imports and companion textures. Dependencies and later relative
 requests use each movie's final URL after redirects. Downloads remain in memory.
 AS3 `Sound.load()` loads local or HTTP/HTTPS MP3 and plays it after the complete
 download, using the native mixer and ordinary `SoundChannel` controls.
+AS3 `BitmapData` supports pixel reads/writes, `fillRect`, independent clones
+and disposal, with texture updates on both rendering backends.
 
 ## Building and testing
 

@@ -717,6 +717,23 @@ namespace IggyViewer {
         public void BeginMorphFrame(){foreach(FocalMorph focal in focalOwners.Values)focal.Ratios.Clear();}
         public void AddMorphInstance(IntPtr definition,float ratio){List<FocalMorph> fills;if(focalDefinitions.TryGetValue(definition,out fills))foreach(FocalMorph focal in fills)focal.AddRatio(ratio);}
         internal void ReleaseLoadedTexture(IntPtr handle) {Free(handle);}
+        internal bool ReadBitmapPixels(IntPtr handle,IntPtr definition,int width,int height,uint[] rgba) {
+            Resource resource;if(!resources.TryGetValue(handle,out resource)||resource.Pixels==null)return false;
+            float sx=F(definition,48),sy=F(definition,52),ox=F(definition,56),oy=F(definition,60);
+            for(int y=0;y<height;y++)for(int x=0;x<width;x++) {
+                int px=Math.Max(0,Math.Min(resource.Width-1,(int)((ox+(x+0.5)*sx/width)*resource.Width))),py=Math.Max(0,Math.Min(resource.Height-1,(int)((oy+(y+0.5)*sy/height)*resource.Height)));
+                uint p=resource.Pixels[py*resource.Width+px];rgba[y*width+x]=(p&0xff00ff00)|((p&255)<<16)|((p>>16)&255);
+            }
+            return true;
+        }
+        internal void UpdateBitmapPixels(IntPtr handle,IntPtr rgba,int stride,int x,int y,int width,int height) {
+            Resource resource;if(!resources.TryGetValue(handle,out resource)||resource.Pixels==null)return;
+            for(int row=y;row<y+height;row++)for(int col=x;col<x+width;col++) {
+                uint pixel=((uint*)rgba)[row*stride+col];resource.Pixels[row*resource.Width+col]=(pixel&0xff00ff00)|((pixel&255)<<16)|((pixel>>16)&255);
+                if(resource.Data!=IntPtr.Zero)((uint*)resource.Data)[row*resource.Width+col]=pixel;
+            }
+            if(gpu!=null)gpu.DeleteTexture(resource.Texture);resource.Texture=0;
+        }
         public void ClearResources() { foreach(IntPtr key in new List<IntPtr>(resources.Keys))Free(key);focalOwners.Clear();focalDefinitions.Clear();gradientOwners.Clear(); }
         public void Dispose() { ClearResources();ReleaseSurfaces();if(gpu!=null){gpu.Dispose();gpu=null;}Marshal.FreeHGlobal(Interface);Interface=IntPtr.Zero;GC.KeepAlive(callbacks); }
     }

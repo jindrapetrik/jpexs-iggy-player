@@ -109,6 +109,7 @@ namespace IggyViewer {
                 Marshal.WriteIntPtr(function,16,Marshal.GetFunctionPointerForDelegate(clone));break;
             }
             if(originalClone==null)throw new InvalidDataException("Cannot locate BitmapData.clone.");
+            InstallPixelMethods(metadata,classes["Rectangle"]);
             loaderGetter=GetLoader;
             traits=Marshal.ReadIntPtr(classes["LoaderInfo"],72);methods=Marshal.ReadIntPtr(traits,72);
             methodsCount=(ushort)Marshal.ReadInt16(traits,26);
@@ -239,46 +240,31 @@ namespace IggyViewer {
         }
         IntPtr Construct(IntPtr context) {
             IntPtr result=originalConstructor(context);
+            if(native.BitmapExceptionPending(context))return result;
             try {
-                if(Marshal.ReadInt32(context,16)<5)return result;
-                IntPtr arguments=Marshal.ReadIntPtr(context,24),value=Marshal.ReadIntPtr(arguments,40);
-                if((value.ToInt64()&3)!=1||Marshal.ReadByte(IntPtr.Subtract(value,1))!=8)return result;
-                IntPtr text=Marshal.ReadIntPtr(value,7);int length=Marshal.ReadInt32(text,7);if(length!=32)return result;
-                string token=Marshal.PtrToStringUni(IntPtr.Add(text,11),length);
-                lock(sync) {
-                    Job job;if(!jobs.TryGetValue(token,out job)||job.Pixels==null||job.Cancelled||job.Uploaded)return result;
-                    IntPtr receiver=Marshal.ReadIntPtr(arguments),buffer=Marshal.ReadIntPtr(receiver,55);
-                    if(buffer==IntPtr.Zero||Marshal.ReadInt32(receiver,47)!=job.Width||Marshal.ReadInt32(receiver,51)!=job.Height)return result;
-                    int size=checked(job.Pixels.Length*4);
-                    if(allocated+size>128*1024*1024)throw new IOException("Loaded image storage exceeds 128 MiB for this movie");
-                    Marshal.Copy(job.Pixels,0,buffer,job.Pixels.Length);
-                    Pixels owned=new Pixels {Definition=Marshal.AllocHGlobal(88),Size=size};
-                    bitmaps.Add(owned.Definition,owned);
-                    IntPtr definition=owned.Definition,raw=owned.Raw=Marshal.AllocHGlobal(size);allocated+=size;
-                    for(int i=0;i<88;i++)Marshal.WriteByte(definition,i,0);
-                    Marshal.WriteByte(definition,0,4);Marshal.WriteByte(definition,1,128);
-                    Marshal.WriteInt16(definition,32,(short)job.Width);Marshal.WriteInt16(definition,34,(short)job.Height);
-                    Marshal.WriteByte(definition,36,4);Marshal.WriteByte(definition,39,2);
-                    *((float*)((byte*)definition+48))=1;*((float*)((byte*)definition+52))=1;
-                    // Native texture source format 0 is RGBA, premultiplied.
-                    int[] rgba=new int[job.Pixels.Length];
-                    for(int i=0;i<rgba.Length;i++) {
-                        uint p=(uint)job.Pixels[i],a=p>>24;
-                        rgba[i]=(int)((a<<24)|(((p>>16)&255)*a/255)|((((p>>8)&255)*a/255)<<8)|(((p&255)*a/255)<<16));
+                IntPtr arguments=Marshal.ReadIntPtr(context,24),receiver=Marshal.ReadIntPtr(arguments);
+                if(Marshal.ReadInt32(receiver,47)<1||Marshal.ReadInt32(receiver,51)<1)return PixelError(context,"ArgumentError","Invalid BitmapData dimensions");
+                Job loaded=null;
+                if(Marshal.ReadInt32(context,16)>=5) {
+                    string token=ReadText(Marshal.ReadIntPtr(arguments,40));
+                    lock(sync)if(token!=null&&jobs.TryGetValue(token,out loaded)&&loaded.Pixels!=null&&!loaded.Cancelled&&!loaded.Uploaded) {
+                        IntPtr buffer=Marshal.ReadIntPtr(receiver,55);
+                        if(buffer==IntPtr.Zero||Marshal.ReadInt32(receiver,47)!=loaded.Width||Marshal.ReadInt32(receiver,51)!=loaded.Height)throw new InvalidDataException("Loaded BitmapData dimensions do not match");
+                        Marshal.Copy(loaded.Pixels,0,buffer,loaded.Pixels.Length);
                     }
-                    Marshal.Copy(rgba,0,raw,rgba.Length);Marshal.WriteIntPtr(definition,64,raw);Marshal.WriteInt32(definition,80,size);
-                    Marshal.WriteIntPtr(receiver,39,definition);
-                    owned.Owners.Add(reference(native.Player,receiver,1));job.Uploaded=true;
                 }
-            } catch(Exception ex) {log.Write("Loader image upload failed: "+ex.Message);}
-            return result;
+                lock(sync)PixelStorage(receiver);
+                if(loaded!=null)lock(sync)loaded.Uploaded=true;
+                return result;
+            } catch(InvalidDataException error){return PixelError(context,"ArgumentError",error.Message);}
         }
         IntPtr Clone(IntPtr context) {
-            IntPtr result=originalClone(context),value=Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,8));
-            if((value.ToInt64()&3)==1) {
-                Pixels pixels;if(bitmaps.TryGetValue(Marshal.ReadIntPtr(value,39),out pixels))pixels.Owners.Add(reference(native.Player,value,1));
-            }
-            return result;
+            IntPtr receiver=Receiver(context);if(Disposed(receiver))return PixelError(context,"ArgumentError","Invalid BitmapData");
+            try {
+                Pixels source=PixelStorage(receiver);uint[] copy=new uint[source.Size/4];for(int i=0;i<copy.Length;i++)copy[i]=((uint*)source.Raw)[i];
+                IntPtr result=originalClone(context);if(native.BitmapExceptionPending(context))return result;
+                lock(sync)OwnPixels(Marshal.ReadIntPtr(Marshal.ReadIntPtr(context,8)),copy);return result;
+            } catch(InvalidDataException error){return PixelError(context,"ArgumentError",error.Message);}
         }
         IntPtr ConstructInfo(IntPtr context) {
             IntPtr result=originalInfoConstructor(context);
@@ -427,12 +413,13 @@ namespace IggyViewer {
                 for(int i=pixels.Owners.Count-1;i>=0;i--)if(Marshal.ReadIntPtr(pixels.Owners[i]).ToInt64()==7) {
                     freeReference(native.Player,pixels.Owners[i]);pixels.Owners.RemoveAt(i);
                 }
-                if(pixels.Owners.Count!=0||pixels.Raw==IntPtr.Zero)continue;
+                if(pixels.Owners.Count!=0)continue;
                 // Native cache records can retain the small owner structure.
                 // Keep that address until PlayerDestroy, but retire its texture
-                // and pixel allocation as soon as all BitmapData clones die.
+                // and pixel allocation as soon as its BitmapData owner dies.
                 native.Renderer.ReleaseLoadedTexture(Marshal.ReadIntPtr(pixels.Definition,40));
                 Marshal.WriteIntPtr(pixels.Definition,40,IntPtr.Zero);Marshal.WriteIntPtr(pixels.Definition,64,IntPtr.Zero);
+                if(pixels.Raw==IntPtr.Zero)continue;
                 Marshal.FreeHGlobal(pixels.Raw);pixels.Raw=IntPtr.Zero;
                 lock(sync)allocated-=pixels.Size;
             }
@@ -459,7 +446,7 @@ namespace IggyViewer {
             }
         }
         public void Dispose() {
-            // Native bitmap clones and cached textures share these definitions.
+            // Native cached textures retain these bitmap definitions.
             // Release them only after PlayerDestroy has drained its cache queue.
             CancelAll();ReleaseSounds();foreach(Pixels pixels in bitmaps.Values){if(pixels.Raw!=IntPtr.Zero)Marshal.FreeHGlobal(pixels.Raw);Marshal.FreeHGlobal(pixels.Definition);}
             bitmaps.Clear();GC.KeepAlive(constructor);GC.KeepAlive(clone);GC.KeepAlive(loaderGetter);GC.KeepAlive(infoConstructor);
