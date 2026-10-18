@@ -27,5 +27,10 @@ public class CreateDataLoaderFixture {
         SWF only=CreateBytesLoaderFixture.movie();CreateBytesLoaderFixture.compile(only,null,Files.readString(data.resolve("RequestOnly.as")));
         SymbolClassTag requestSymbols=new SymbolClassTag(only);requestSymbols.tags.add(0);requestSymbols.names.add("RequestOnly");
         CreateBytesLoaderFixture.write(only,data.resolve("request-only"),requestSymbols);
+        for(String main:new String[]{"NetworkDisplayChild","NetworkDisplayMain"}) {
+            SWF display=CreateBytesLoaderFixture.movie();CreateBytesLoaderFixture.compile(display,null,Files.readString(data.resolve(main+".as")));
+            SymbolClassTag displaySymbols=new SymbolClassTag(display);displaySymbols.tags.add(0);displaySymbols.names.add(main);
+            CreateBytesLoaderFixture.write(display,main.equals("NetworkDisplayMain")?output.resolveSibling("network-display"):data.resolve("network-child"),displaySymbols);
+        }
     }
 }

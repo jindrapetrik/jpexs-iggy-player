@@ -24,6 +24,7 @@ namespace IggyViewer {
             internal int Hanging,Aborted,Requests;
             internal string CrossOrigin;
             internal readonly ManualResetEvent UploadDrain=new ManualResetEvent(false);
+            internal readonly Dictionary<string,byte[]> Resources=new Dictionary<string,byte[]>(StringComparer.Ordinal);
             internal readonly string Url;
             internal HttpTestServer(X509Certificate2 certificate=null) {
                 this.certificate=certificate;listener.Start();Url=(certificate==null?"http":"https")+"://127.0.0.1:"+((IPEndPoint)listener.LocalEndpoint).Port;
@@ -57,6 +58,12 @@ namespace IggyViewer {
                         }
                         byte[] body=new byte[bodyLength];int readBody=0;
                         while(readBody<bodyLength){int read=stream.Read(body,readBody,Math.Min(65536,bodyLength-readBody));if(read==0)return;readBody+=read;}
+                        string resourcePath=path.Split('?')[0];byte[] resource;
+                        if(Resources.TryGetValue(resourcePath,out resource)){
+                            if(resourcePath=="/remote/post.png"&&(first[0]!="POST"||Encoding.UTF8.GetString(body)!="image=1"||!headers.ContainsKey("X-Test")||headers["X-Test"]!="display")){Respond(stream,400,"",new byte[0]);return;}
+                            Respond(stream,200,"",resource);return;
+                        }
+                        if(path=="/display-redirect"){Respond(stream,302,"Location: /remote/child.iggy\r\n",new byte[0]);return;}
                         if(path.StartsWith("/post-redirect/",StringComparison.Ordinal)) {
                             int redirectCode=int.Parse(path.Substring("/post-redirect/".Length));Respond(stream,redirectCode,"Location: /inspect\r\n",new byte[0]);return;
                         }

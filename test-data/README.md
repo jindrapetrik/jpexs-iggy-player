@@ -313,6 +313,27 @@ java -cp $classpath CreateDataLoaderFixture test-data/url-loader
 Run --self-test-url-loader test-data/url-loader.iggy test-output/url-loader,
 or use test.ps1 with optional -TestOpenGl. Oversized test files are generated in
 the output directory rather than stored with the fixtures.
+
+## Loader network display content
+
+network-display.swf/network-display.iggy exercise HTTP/HTTPS PNG/JPEG loads,
+POST data and custom headers, redirects, status/progress/init/complete events,
+forced GC, IO/security errors, allowCodeImport, cancellation from status/init
+handlers, unloading and shutdown during a stalled response. The remote IGGY
+child starts delayed relative image and URLLoader requests, verifying the final
+response URL in both the constructor and subsequent callbacks. Rendered pixels
+and bitmap storage collection are checked on both rendering backends.
+
+The shared URLLoader transport limits each download to 32 MiB and uses normal
+system certificate checks. Tests use the same scoped loopback certificate
+exception described above. Downloads are decoded in memory. Remote IGGY with
+static imports or companion textures is rejected with ioError; fetching those
+dependencies is not implemented yet. Direct SWF loading remains unsupported.
+
+Run --self-test-network-display test-data/network-display.iggy test-output/network-display,
+or use test.ps1 with optional -TestOpenGl. CreateDataLoaderFixture regenerates
+these fixtures together with URLLoader fixtures.
+
 ## Filters
 
 The filters.swf and filters.iggy fixtures exercise translucent color

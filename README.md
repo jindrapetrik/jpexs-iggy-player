@@ -32,6 +32,8 @@ and saved automatically when closing or replacing a movie.
 AS3 `URLLoader` reads local files and supports HTTP/HTTPS GET and POST with
 request data and custom headers. Movies have desktop network access;
 Flash's cross-domain policy sandbox is not emulated.
+AS3 `Loader` also loads PNG/JPEG images and standalone 64-bit IGGY over HTTP/HTTPS,
+preserving the final URL for subsequent relative requests.
 
 ## Building and testing
 
@@ -48,8 +50,8 @@ See [test-data/README.md](test-data/README.md) for fixture details.
 
 ## Limitations
 
-32-bit IGGY and direct SWF playback are unsupported. Network loading
-through display `Loader`, video, streaming audio and some AS3 APIs are not
+32-bit IGGY and direct SWF playback are unsupported. Remote IGGY with static
+imports or companion textures, video, streaming audio and some AS3 APIs are not
 implemented. Rendering and seeking can differ from Flash Player.
 Source movies and DLLs are not modified.
 

@@ -26,6 +26,7 @@ namespace IggyViewer {
                     string file=Path.Combine(Path.GetDirectoryName(baseFile),"__iggy_memory_"+digest+".iggy");
                     Job job=new Job {Token=Guid.NewGuid().ToString("N"),Url=new Uri(file).AbsoluteUri,BaseFile=baseFile,Domain=domain,
                         AllowCode=ReadText(Marshal.ReadIntPtr(arguments,40))!="no",Owner=native.Activity.Current,SourceBytes=bytes,InputBytes=bytes.Length};
+                    if(uri!=null&&(uri.Scheme=="http"||uri.Scheme=="https"))job.SourceUrl=new Uri(uri,"__iggy_memory_"+digest+".iggy").AbsoluteUri;
                     jobs.Add(job.Token,job);token=job.Token;
                     ThreadPool.QueueUserWorkItem(delegate {decoders.Wait();try {Decode(job);}finally {decoders.Release();}});
                 }

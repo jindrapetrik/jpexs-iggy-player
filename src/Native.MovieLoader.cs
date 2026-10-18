@@ -24,7 +24,7 @@ namespace IggyViewer {
             return IntPtr.Zero;
         }
         internal sealed class LoadedMovie {
-            internal string FileName;
+            internal string FileName,SourceUrl;
             internal int Width,Height,Library,Domain;
             internal IntPtr Definition;
             internal Dictionary<string,string> ClassNames;
@@ -114,12 +114,13 @@ namespace IggyViewer {
         }
         // Called outside AS3, between native ticks. No public Iggy entry point
         // is re-entered from the Loader's ExternalInterface callback.
-        internal LoadedMovie RegisterMovie(string file,byte[] original,int domain) {
+        internal LoadedMovie RegisterMovie(string file,byte[] original,int domain,string sourceUrl=null) {
             if(!ValidMovieDomain(domain))throw new InvalidDataException("Invalid target application domain.");
+            if(sourceUrl!=null&&Container.Imports(original).Length!=0)throw new IOException("Remote IGGY static imports are not supported yet");
             if(original.Length<32||BitConverter.ToUInt32(original,0)!=0xed0a6749||original[9]!=64)
                 throw new InvalidDataException("Dynamic loading requires a 64-bit IGGY container.");
             string key;
-            using(SHA256 sha=SHA256.Create())key=domain+"|"+Path.GetFullPath(file)+"|"+BitConverter.ToString(sha.ComputeHash(original));
+            using(SHA256 sha=SHA256.Create())key=domain+"|"+Path.GetFullPath(file)+"|"+(sourceUrl??"")+"|"+BitConverter.ToString(sha.ComputeHash(original));
             LoadedMovie cached;if(movieLibraries.TryGetValue(key,out cached))return cached;
             if(libraries.Count>=32)throw new IOException("The native runtime's 32-library limit has been reached.");
             if(compilerLifetime==null)throw new InvalidOperationException("The movie linker was not retained before startup.");
@@ -137,10 +138,11 @@ namespace IggyViewer {
             if(id<0||id>31)throw new InvalidDataException("The DLL rejected the loaded movie.");
             libraries.Add(id);
             IntPtr generic=libraryGeneric(id),vm=Marshal.ReadIntPtr(Player,modernDll?10560:10480);
+            if(sourceUrl!=null){IntPtr textures=Marshal.ReadIntPtr(generic,512);if(textures!=IntPtr.Zero&&(ushort)Marshal.ReadInt16(textures)>0)throw new IOException("Remote IGGY companion textures are not supported yet");}
             int frames=Marshal.ReadInt32(generic,104),depth=Marshal.ReadInt32(generic,108);
             if(frames<1||frames>65535||depth<0||depth>65535)throw new InvalidDataException("Loaded movie exceeds native sprite frame/depth limits.");
             NormalizeTimelineMatrices(generic);NormalizeEmptyStyleTables(generic);NormalizeAudio(generic);InstallTextures(generic,file);
-            LoadedMovie movie=new LoadedMovie {FileName=Path.GetFullPath(file),Library=id,Domain=domain,ClassNames=renamed,Width=Marshal.ReadInt32(generic,16),Height=Marshal.ReadInt32(generic,20)};
+            LoadedMovie movie=new LoadedMovie {FileName=Path.GetFullPath(file),SourceUrl=sourceUrl,Library=id,Domain=domain,ClassNames=renamed,Width=Marshal.ReadInt32(generic,16),Height=Marshal.ReadInt32(generic,20)};
             RenameMovieSymbols(generic,renamed);
             List<KeyValuePair<IntPtr,IntPtr>> registry=MovieRegistry(vm);
             HashSet<IntPtr> parentClasses=new HashSet<IntPtr>();
@@ -176,7 +178,7 @@ namespace IggyViewer {
                 MovieRegistry(vm,registry,null);
             }
             if(valid(Player)==0)throw new InvalidDataException("Native verification failed while linking the loaded movie.");
-            movieLibraries.Add(key,movie);log.Write("Linked local movie into parent VM: "+file+" (library "+id+").");return movie;
+            movieLibraries.Add(key,movie);log.Write("Linked movie into parent VM: "+(sourceUrl??file)+" (library "+id+").");return movie;
         }
         void LinkMovieLibrary(IntPtr vm,int id,IntPtr generic,bool root,LoadedMovie movie) {
             if(MovieFunction<LoadMovieAbc>(0x44e0,0x15a0)(Player,generic,id,IntPtr.Zero)==0)throw new InvalidDataException("Cannot link loaded movie ABC.");

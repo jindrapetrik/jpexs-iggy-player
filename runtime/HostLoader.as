@@ -20,19 +20,21 @@ package com.jpexs.iggy.runtime {
         private var opened:Boolean;
         private var loaded:DisplayObject;
         private var allowCode:Boolean;
+        private var progress:Number;
         public function HostLoader() {
             super(); info = new HostLoaderInfo(this);
         }
         public function load(request:HostURLRequest, context:LoaderContext = null):void {
             if (request == null) throw new TypeError("Loader request is null");
-            begin(request.url, null, context);
+            if (request.url == null || request.url.length == 0) throw new ArgumentError("Loader URL is empty");
+            begin(request.url, null, context, request.packet());
         }
         public function loadBytes(bytes:ByteArray, context:LoaderContext = null):void {
             if (bytes == null) throw new TypeError("Loader bytes are null");
             if (bytes.length == 0) throw new ArgumentError("Loader bytes are empty");
             begin(null, bytes, context);
         }
-        private function begin(url:String, bytes:ByteArray, context:LoaderContext):void {
+        private function begin(url:String, bytes:ByteArray, context:LoaderContext, packet:ByteArray = null):void {
             if (context != null && context.securityDomain != null) throw new SecurityError("SecurityDomain is unavailable for local loading");
             if (context != null && context.requestedContentParent != null) throw new ArgumentError("requestedContentParent is unavailable for local loading");
             var serial:uint = generation + 1;
@@ -40,6 +42,7 @@ package com.jpexs.iggy.runtime {
             if (serial != generation) return;
             info.requestUrl = url;
             info.requestBytes = 0;
+            info.requestTotal = 0; progress = -1;
             info.imageWidth = 0;
             info.imageHeight = 0;
             info.mimeType = null;
@@ -47,7 +50,10 @@ package com.jpexs.iggy.runtime {
             info.requestParameters = context == null || context.parameters == null ? {} : context.parameters;
             allowCode = context == null || context.allowCodeImport;
             opened = false;
-            if (bytes == null) token = String(ExternalInterface.call("__iggy_image_start", url, info.loaderURL, String(info.requestDomain.__iggyId), allowCode ? "yes" : "no"));
+            if (bytes == null) {
+                packet.position = packet.length; packet.writeUnsignedInt(info.requestDomain.__iggyId); packet.writeBoolean(allowCode);
+                token = String(new HostAmfRequest("data-image-start", packet, info.loaderURL).result);
+            }
             else token = new HostBytesRequest(bytes, info.loaderURL, info.requestDomain.__iggyId, allowCode && (context == null || context.allowLoadBytesCodeExecution)).token;
             pending = new Timer(10);
             pending.addEventListener(TimerEvent.TIMER, poll);
@@ -61,21 +67,43 @@ package com.jpexs.iggy.runtime {
                 if (serial != generation) return;
                 ExternalInterface.call("__iggy_image_opened", token);
             }
-            var status:String = token.indexOf("error|") == 0 ? token : String(ExternalInterface.call("__iggy_image_poll", token));
+            var invalid:Boolean = token.indexOf("error|") == 0 || token.indexOf("security|") == 0;
+            if (!invalid) {
+                var http:String = String(ExternalInterface.call("__iggy_image_transfer", token));
+                while (http.length != 0) {
+                    var fields:Array = http.split("|");
+                    info.dispatchEvent(new HostHTTPStatusEvent("httpStatus", false, false, int(fields[0]), fields[1] == "1"));
+                    if (serial != generation) return;
+                    http = String(ExternalInterface.call("__iggy_image_transfer", token));
+                }
+                var counts:String = String(ExternalInterface.call("__iggy_image_progress", token));
+                if (counts.length != 0) {
+                    var values:Array = counts.split("|"); info.requestBytes = uint(values[0]); info.requestTotal = uint(values[1]);
+                    if (Number(info.requestBytes) != progress) {
+                        progress = info.requestBytes; info.dispatchEvent(new HostProgressEvent("progress", false, false, info.requestBytes, info.requestTotal));
+                        if (serial != generation) return;
+                    }
+                }
+            }
+            var status:String = invalid ? token : String(ExternalInterface.call("__iggy_image_poll", token));
             if (status == "pending") return;
             var parts:Array = status.split("|");
             if (parts[0] != "ready" && parts[0] != "movie") {
                 close();
-                info.dispatchEvent(new HostIOErrorEvent("ioError", false, false, status));
+                if (status.indexOf("security|") == 0) info.dispatchEvent(new HostSecurityErrorEvent("securityError", false, false, status.substr(9)));
+                else info.dispatchEvent(new HostIOErrorEvent("ioError", false, false, status));
                 return;
             }
             info.imageWidth = int(parts[1]);
             info.imageHeight = int(parts[2]);
             info.requestBytes = uint(parts[3]);
+            info.requestTotal = info.requestBytes;
             info.mimeType = String(parts[4]);
             info.requestUrl = parts.slice(5).join("|");
-            info.dispatchEvent(new HostProgressEvent("progress", false, false, info.requestBytes, info.requestBytes));
-            if (serial != generation) return;
+            if (Number(info.requestBytes) != progress) {
+                progress = info.requestBytes; info.dispatchEvent(new HostProgressEvent("progress", false, false, info.requestBytes, info.requestBytes));
+                if (serial != generation) return;
+            }
             var candidate:DisplayObject;
             try {
                 if (parts[0] == "movie") {
@@ -90,7 +118,7 @@ package com.jpexs.iggy.runtime {
             } catch (error:Error) {
                 if (serial != generation) return;
                 close();
-                info.dispatchEvent(new HostIOErrorEvent("ioError", false, false, error.message));
+                info.dispatchEvent(new HostIOErrorEvent("ioError", false, false, "Cannot instantiate loaded content"));
                 return;
             }
             if (serial != generation) return;

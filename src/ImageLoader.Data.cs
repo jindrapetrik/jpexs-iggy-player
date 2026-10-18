@@ -10,7 +10,10 @@ namespace IggyViewer {
     internal unsafe sealed partial class ImageLoader {
         const int DataLimit=32*1024*1024;
         sealed class DataJob {
-            internal string Token,Url,BaseUrl,Error,Method,ContentType;
+            internal string Token,Url,BaseUrl,Error,Method,ContentType,ResponseUrl;
+            internal Job Display;
+            internal int Domain;
+            internal bool AllowCode;
             internal MovieActivity.Scope Owner;
             internal int Loaded,Total,Reserved;
             internal bool Ready,Cancelled;
@@ -24,19 +27,21 @@ namespace IggyViewer {
         int dataReaders;
         internal int PendingDataLoads {get{lock(sync)return dataJobs.Count;}}
         string DataBaseUrl() {
-            if(constructing!=null)return new Uri(constructing.Movie.FileName).AbsoluteUri;
+            if(constructing!=null)return MovieUrl(constructing.Movie);
             if(native.Activity.Current!=null)foreach(MovieRoot root in roots) {
                 MovieActivity.Scope scope;
                 if(!native.Activity.TryOwner(Marshal.ReadIntPtr(root.Root),out scope)||scope==null||!MovieActivity.Within(native.Activity.Current,scope))continue;
-                foreach(MovieTicket ticket in tickets)if(Marshal.ReadIntPtr(ticket.Info)==Marshal.ReadIntPtr(root.Info))return new Uri(ticket.Movie.FileName).AbsoluteUri;
+                foreach(MovieTicket ticket in tickets)if(Marshal.ReadIntPtr(ticket.Info)==Marshal.ReadIntPtr(root.Info))return MovieUrl(ticket.Movie);
             }
             return new Uri(native.FileName).AbsoluteUri;
         }
         IntPtr DataContent(IntPtr context,AmfRequest request) {
             string operation=request.Operation,answer;
             if(operation=="data-base")return native.ReturnMovieString(context,DataBaseUrl());
-            if(operation=="data-start") {
-                DataJob pending=ReadDataRequest(Marshal.ReadIntPtr(request.Value));
+            if(operation=="data-start"||operation=="data-image-start") {
+                DataJob pending=ReadDataRequest(Marshal.ReadIntPtr(request.Value),operation=="data-image-start");
+                pending.BaseUrl=request.Extra;
+                if(operation=="data-image-start")return native.ReturnMovieString(context,StartDisplayRequest(pending));
                 lock(sync) {
                     if(closed||native.Activity.Current!=null&&native.Activity.Current.Stopped)answer="error|The containing movie was closed";
                     else if(dataJobs.Count>=32)answer="error|Too many pending URLLoader requests";
@@ -78,7 +83,7 @@ namespace IggyViewer {
                 DataJob job=dataWaiting.Dequeue();if(closed||job.Cancelled)continue;
                 dataReaders++;
                 ThreadPool.QueueUserWorkItem(delegate {
-                    try{ReadData(job);}finally{lock(sync){dataReaders--;StartDataReaders();}}
+                    try{ReadData(job);if(job.Display!=null)CompleteDisplayRequest(job);}finally{lock(sync){dataReaders--;StartDataReaders();}}
                 });
             }
         }
@@ -157,7 +162,7 @@ namespace IggyViewer {
                     catch(WebException error){response=error.Response as HttpWebResponse;if(response==null)throw;}
                     using(response) {
                         int code=(int)response.StatusCode;
-                        lock(sync){if(closed||job.Cancelled)return;job.Statuses.Enqueue(code+"|"+(hop==0?"0":"1"));}
+                        lock(sync){if(closed||job.Cancelled)return;job.ResponseUrl=uri.AbsoluteUri;job.Statuses.Enqueue(code+"|"+(hop==0?"0":"1"));}
                         received=true;
                         if(code==301||code==302||code==303||code==307||code==308) {
                             if(hop>=8)throw new IOException("URLLoader exceeded eight HTTP redirects");

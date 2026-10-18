@@ -18,8 +18,8 @@ namespace IggyViewer {
             foreach(char code in value)if((code<32&&code!='\t')||code==127||code>255)throw new InvalidDataException("Invalid HTTP header value");
         }
         // Snapshot on the AS3 thread; workers only see managed data, never VM atoms.
-        DataJob ReadDataRequest(IntPtr value) {
-            byte[] packet=native.CopyByteArray(value,DataLimit+131076);
+        DataJob ReadDataRequest(IntPtr value,bool display=false) {
+            byte[] packet=native.CopyByteArray(value,DataLimit+131076+(display?5:0));
             using(BinaryReader reader=new BinaryReader(new MemoryStream(packet))) {
                 DataJob job=new DataJob {Url=RequestString(reader),Method=RequestString(reader),ContentType=RequestString(reader)};
                 if(job.Url.Length==0||(job.Method!="GET"&&job.Method!="POST"))throw new InvalidDataException("Invalid URLRequest URL or method");
@@ -37,8 +37,10 @@ namespace IggyViewer {
                 }
                 if(reader.BaseStream.Position>131072)throw new InvalidDataException("URLRequest metadata exceeds 128 KiB");
                 uint length=RequestUInt(reader);
-                if(length>DataLimit||length!=reader.BaseStream.Length-reader.BaseStream.Position||(job.Method=="GET"&&length!=0))throw new InvalidDataException("Invalid URLRequest body size");
-                job.Upload=reader.ReadBytes((int)length);return job;
+                if(length>DataLimit||length!=reader.BaseStream.Length-reader.BaseStream.Position-(display?5:0)||(job.Method=="GET"&&length!=0))throw new InvalidDataException("Invalid URLRequest body size");
+                job.Upload=reader.ReadBytes((int)length);
+                if(display){job.Domain=(int)RequestUInt(reader);job.AllowCode=reader.ReadBoolean();}
+                return job;
             }
         }
         static bool SameDataOrigin(Uri first,Uri second) {return first.Scheme==second.Scheme&&first.Port==second.Port&&string.Equals(first.Host,second.Host,StringComparison.OrdinalIgnoreCase);}
